@@ -181,12 +181,6 @@ jobs:
     - name: Setup 7-Zip
       uses: milliewalky/setup-7-zip@v2
 
-    - name: Setup Inno Setup
-      uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
-      with:
-        # Use default settings - no code signing for now
-        path: "DLSS enabler.iss"
-
     - name: Download and extract OptiScaler
       shell: powershell
       run: |
@@ -412,29 +406,11 @@ jobs:
         
         Write-Host "Updated Inno Setup script"
 
-    - name: Build installer with Inno Setup
-      shell: powershell
-      run: |
-        $issFile = "DLSS enabler.iss"
-        
-        Write-Host "Building installer with Inno Setup..."
-        Write-Host "Script: $issFile"
-        
-        # Use ISCC from PATH (installed by Inno Setup Action)
-        $process = Start-Process -FilePath "ISCC" -ArgumentList "`"$issFile`"" -Wait -PassThru -NoNewWindow
-        
-        if ($process.ExitCode -ne 0) {
-            Write-Error "Inno Setup compilation failed with exit code: $($process.ExitCode)"
-            exit 1
-        }
-        
-        Write-Host "Installer built successfully"
-        
-        # List output files
-        if (Test-Path "Output") {
-            Write-Host "Output directory contents:"
-            Get-ChildItem "Output" | ForEach-Object { Write-Host "  $($_.Name)" }
-        }
+    - name: Setup Inno Setup
+      uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
+      with:
+        # Use default settings - no code signing for now
+        path: "DLSS enabler.iss"
 
     - name: Get current date
       id: date
