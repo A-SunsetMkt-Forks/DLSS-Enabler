@@ -185,7 +185,7 @@ jobs:
       uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
       with:
         # Use default settings - no code signing for now
-        path: .
+        path: "DLSS enabler.iss"
 
     - name: Download and extract OptiScaler
       shell: powershell

@@ -19,6 +19,9 @@ temp_extract/
 *.suo
 *.user
 
+# Git history and IDE files
+.history/
+
 # Windows thumbnail cache
 Thumbs.db
 ehthumbs.db
