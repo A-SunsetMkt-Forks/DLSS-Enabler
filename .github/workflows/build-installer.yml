@@ -181,7 +181,20 @@ jobs:
     - name: Setup 7-Zip
       uses: milliewalky/setup-7-zip@v2
 
+    - name: Cache OptiScaler download
+      uses: actions/cache@v4
+      id: cache-optiscaler
+      with:
+        path: |
+          Dll version/dlss-enabler-upscaler.dll
+          Dll version/OptiScaler.ini
+        key: optiscaler-${{ needs.check-versions.outputs.optiscaler_version }}-${{ hashFiles('Dll version/nvngx.ini') }}
+        restore-keys: |
+          optiscaler-${{ needs.check-versions.outputs.optiscaler_version }}-
+          optiscaler-
+
     - name: Download and extract OptiScaler
+      if: steps.cache-optiscaler.outputs.cache-hit != 'true'
       shell: powershell
       run: |
         $downloadUrl = "${{ needs.check-versions.outputs.optiscaler_download_url }}"
@@ -250,34 +263,55 @@ jobs:
         
         Write-Host "Extracted to: $extractDir"
         
-        # Find nvngx.dll in extracted files
-        $nvngxFiles = Get-ChildItem -Path $extractDir -Name "nvngx.dll" -Recurse
-        
-        if ($nvngxFiles.Count -eq 0) {
-            Write-Error "Could not find nvngx.dll in OptiScaler archive"
-            Write-Host "Archive contents:"
-            Get-ChildItem -Path $extractDir -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
-            exit 1
-        } elseif ($nvngxFiles.Count -gt 1) {
-            Write-Host "Found multiple nvngx.dll files, using the first one:"
-            $nvngxFiles | ForEach-Object { Write-Host "  $_" }
+        # List all extracted files for debugging
+        Write-Host "Archive contents:"
+        Get-ChildItem -Path $extractDir -Recurse | ForEach-Object { 
+            $relativePath = $_.FullName.Replace($extractDir, "").TrimStart('\')
+            Write-Host "  $relativePath" 
         }
         
-        $nvngxFile = $nvngxFiles[0]
-        $nvngxPath = (Get-ChildItem -Path $extractDir -Name "nvngx.dll" -Recurse | Select-Object -First 1).FullName
-        Write-Host "Found nvngx.dll at: $nvngxPath"
+        # Find OptiScaler.dll in extracted files (this is the main upscaler file)
+        $optiScalerFiles = Get-ChildItem -Path $extractDir -Name "OptiScaler.dll" -Recurse
         
-        # Verify nvngx.dll
-        $nvngxInfo = Get-Item $nvngxPath
-        if ($nvngxInfo.Length -lt 100KB) {
-            throw "nvngx.dll appears to be too small: $($nvngxInfo.Length) bytes"
+        if ($optiScalerFiles.Count -eq 0) {
+            Write-Error "Could not find OptiScaler.dll in OptiScaler archive"
+            Write-Host "Looking for alternative dll files..."
+            $dllFiles = Get-ChildItem -Path $extractDir -Name "*.dll" -Recurse
+            if ($dllFiles.Count -gt 0) {
+                Write-Host "Available DLL files:"
+                $dllFiles | ForEach-Object { Write-Host "  $_" }
+            }
+            exit 1
+        } elseif ($optiScalerFiles.Count -gt 1) {
+            Write-Host "Found multiple OptiScaler.dll files, using the first one:"
+            $optiScalerFiles | ForEach-Object { Write-Host "  $_" }
+        }
+        
+        $optiScalerFile = $optiScalerFiles[0]
+        $optiScalerPath = (Get-ChildItem -Path $extractDir -Name "OptiScaler.dll" -Recurse | Select-Object -First 1).FullName
+        Write-Host "Found OptiScaler.dll at: $optiScalerPath"
+        
+        # Verify OptiScaler.dll
+        $optiScalerInfo = Get-Item $optiScalerPath
+        if ($optiScalerInfo.Length -lt 100KB) {
+            throw "OptiScaler.dll appears to be too small: $($optiScalerInfo.Length) bytes"
         }
         
         # Copy and rename to dlss-enabler-upscaler.dll
         $targetPath = "Dll version\dlss-enabler-upscaler.dll"
-        Copy-Item -Path $nvngxPath -Destination $targetPath -Force
+        Copy-Item -Path $optiScalerPath -Destination $targetPath -Force
         
-        Write-Host "Copied nvngx.dll to: $targetPath"
+        Write-Host "Copied OptiScaler.dll to: $targetPath"
+        
+        # Also copy OptiScaler.ini if it exists
+        $optiScalerIniPath = Join-Path (Split-Path $optiScalerPath) "OptiScaler.ini"
+        if (Test-Path $optiScalerIniPath) {
+            $targetIniPath = "Dll version\OptiScaler.ini"
+            Copy-Item -Path $optiScalerIniPath -Destination $targetIniPath -Force
+            Write-Host "Copied OptiScaler.ini to: $targetIniPath"
+        } else {
+            Write-Warning "OptiScaler.ini not found, installer may need manual configuration"
+        }
         
         # Verify the copied file
         if (Test-Path $targetPath) {
@@ -299,7 +333,22 @@ jobs:
             exit 1
         }
 
+    - name: Get current week for XeSS cache
+      id: get-week
+      run: echo "week=$(Get-Date -UFormat '%Y-W%V')" >> $env:GITHUB_OUTPUT
+
+    - name: Cache XeSS library
+      uses: actions/cache@v4
+      id: cache-xess
+      with:
+        path: |
+          Dll version/libxess.dll
+        key: xess-library-${{ steps.get-week.outputs.week }}
+        restore-keys: |
+          xess-library-
+
     - name: Download latest XeSS library
+      if: steps.cache-xess.outputs.cache-hit != 'true'
       shell: powershell
       run: |
         Write-Host "Downloading latest libxess.dll..."

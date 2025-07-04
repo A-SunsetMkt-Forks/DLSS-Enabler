@@ -106,6 +106,7 @@ Source: "DLLSG mod\nvngx.dll"; DestDir: "{app}"; DestName: "nvngx-wrapper.dll"; 
 ; upscalers
 Source: "Dll version\dlss-enabler-upscaler.dll"; DestDir: "{app}"; Flags: ignoreversion; Components: upscalers
 Source: "Dll version\nvngx.ini"; DestDir: "{app}"; Flags: ignoreversion; Components: upscalers
+Source: "Dll version\OptiScaler.ini"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
 Source: "Dll version\libxess.dll"; DestDir: "{app}"; Flags: uninsneveruninstall; Components: upscalers
 Source: "XESS LICENSE.pdf"; DestDir: "{app}"; DestName: "XESS LICENSE.pdf"; Flags: ignoreversion deleteafterinstall; Components: upscalers
 Source: "XESS LICENSE.pdf"; DestDir: "{app}/licenses"; DestName: "XESS LICENSE.pdf"; Flags: ignoreversion; Components: upscalers
