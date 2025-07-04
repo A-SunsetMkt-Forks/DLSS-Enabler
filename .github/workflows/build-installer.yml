@@ -1,0 +1,510 @@
+name: Build DLSS-Enabler Installer
+
+on:
+  # Trigger on schedule to check for new OptiScaler releases daily
+  schedule:
+    - cron: '0 12 * * *'  # Run daily at 12:00 UTC
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      optiscaler_version:
+        description: 'Specific OptiScaler version to use (e.g., v0.7.7-pre12, nightly)'
+        required: false
+        default: 'nightly'
+      force_build:
+        description: 'Force build even if no new version'
+        type: boolean
+        required: false
+        default: false
+
+  # Trigger on push to main branch for testing
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - '.github/**'
+      - 'docs/**'
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  OPTISCALER_REPO: optiscaler/OptiScaler
+  XESS_DOWNLOAD_URL: https://github.com/intel/xess/releases/latest/download/libxess.dll
+
+jobs:
+  check-versions:
+    runs-on: windows-latest
+    outputs:
+      should_build: ${{ steps.version_check.outputs.should_build }}
+      optiscaler_version: ${{ steps.version_check.outputs.optiscaler_version }}
+      optiscaler_download_url: ${{ steps.version_check.outputs.optiscaler_download_url }}
+      dlss_enabler_version: ${{ steps.version_check.outputs.dlss_enabler_version }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Cache PowerShell modules
+      uses: actions/cache@v4
+      with:
+        path: ~\Documents\PowerShell\Modules
+        key: ${{ runner.os }}-powershell-modules-${{ hashFiles('**/*.psm1') }}
+        restore-keys: |
+          ${{ runner.os }}-powershell-modules-
+
+    - name: Check OptiScaler versions and determine if build needed
+      id: version_check
+      shell: powershell
+      run: |
+        # Function to get release info
+        function Get-GitHubRelease {
+            param($repo, $tag)
+            $headers = @{
+                'Accept' = 'application/vnd.github.v3+json'
+                'User-Agent' = 'DLSS-Enabler-Bot'
+            }
+            if ($env:GITHUB_TOKEN) {
+                $headers['Authorization'] = "token $env:GITHUB_TOKEN"
+            }
+            
+            if ($tag -eq "nightly" -or $tag -eq "latest") {
+                $url = "https://api.github.com/repos/$repo/releases"
+                $releases = Invoke-RestMethod -Uri $url -Headers $headers
+                if ($tag -eq "nightly") {
+                    return $releases | Where-Object { $_.prerelease -eq $true -and $_.tag_name -eq "nightly" } | Select-Object -First 1
+                } else {
+                    return $releases | Where-Object { $_.prerelease -eq $false } | Select-Object -First 1
+                }
+            } else {
+                $url = "https://api.github.com/repos/$repo/releases/tags/$tag"
+                return Invoke-RestMethod -Uri $url -Headers $headers
+            }
+        }
+
+        # Determine which version to check
+        $targetVersion = "${{ github.event.inputs.optiscaler_version }}"
+        if (-not $targetVersion -or $targetVersion -eq "") {
+            $targetVersion = "nightly"
+        }
+
+        Write-Host "Checking OptiScaler version: $targetVersion"
+
+        try {
+            # Get OptiScaler release info
+            $release = Get-GitHubRelease -repo "$env:OPTISCALER_REPO" -tag $targetVersion
+            
+            if (-not $release) {
+                Write-Error "Could not find OptiScaler release: $targetVersion"
+                exit 1
+            }
+
+            $optiVersion = $release.tag_name
+            $publishedAt = $release.published_at
+            Write-Host "Found OptiScaler version: $optiVersion (published: $publishedAt)"
+
+            # Find the Windows zip file in assets
+            $asset = $release.assets | Where-Object { 
+                $_.name -match "OptiScaler.*\.zip$" -or $_.name -match "OptiScaler.*\.7z$" 
+            } | Select-Object -First 1
+
+            if (-not $asset) {
+                Write-Error "Could not find OptiScaler zip/7z asset in release"
+                exit 1
+            }
+
+            $downloadUrl = $asset.browser_download_url
+            Write-Host "Download URL: $downloadUrl"
+
+            # Check if we have built this version before
+            $shouldBuild = $true
+            $forceValue = "${{ github.event.inputs.force_build }}"
+            
+            if ($forceValue -eq "true") {
+                Write-Host "Force build requested"
+                $shouldBuild = $true
+            } else {
+                # Check if we have a release with this OptiScaler version
+                try {
+                    $existingReleases = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/releases" -Headers @{
+                        'Accept' = 'application/vnd.github.v3+json'
+                        'User-Agent' = 'DLSS-Enabler-Bot'
+                    }
+                    
+                    $existingRelease = $existingReleases | Where-Object { 
+                        $_.body -match "OptiScaler.*$([regex]::Escape($optiVersion))" -or
+                        $_.tag_name -match $optiVersion
+                    } | Select-Object -First 1
+
+                    if ($existingRelease) {
+                        Write-Host "Found existing release with OptiScaler $optiVersion - skipping build"
+                        $shouldBuild = $false
+                    } else {
+                        Write-Host "No existing release found with OptiScaler $optiVersion - will build"
+                        $shouldBuild = $true
+                    }
+                } catch {
+                    Write-Host "Could not check existing releases, will build anyway: $($_.Exception.Message)"
+                    $shouldBuild = $true
+                }
+            }
+
+            # Generate DLSS Enabler version
+            $timestamp = Get-Date -Format "yyyyMMdd.HHmmss"
+            $dlssVersion = "3.01.$timestamp"
+
+            # Output results
+            echo "should_build=$($shouldBuild.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+            echo "optiscaler_version=$optiVersion" >> $env:GITHUB_OUTPUT
+            echo "optiscaler_download_url=$downloadUrl" >> $env:GITHUB_OUTPUT
+            echo "dlss_enabler_version=$dlssVersion" >> $env:GITHUB_OUTPUT
+
+            Write-Host "Should build: $shouldBuild"
+            Write-Host "OptiScaler version: $optiVersion"
+            Write-Host "DLSS Enabler version: $dlssVersion"
+
+        } catch {
+            Write-Error "Error checking versions: $($_.Exception.Message)"
+            exit 1
+        }
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-installer:
+    needs: check-versions
+    if: needs.check-versions.outputs.should_build == 'true'
+    runs-on: windows-latest
+    
+    permissions:
+      contents: write
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Cache downloads
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ env.TEMP }}\optiscaler
+          ${{ env.TEMP }}\xess
+        key: ${{ runner.os }}-downloads-${{ needs.check-versions.outputs.optiscaler_version }}
+        restore-keys: |
+          ${{ runner.os }}-downloads-
+
+    - name: Setup 7-Zip
+      uses: animelover1984/setup-7zip@v1
+
+    - name: Setup Inno Setup
+      uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
+      with:
+        # Use default settings - no code signing for now
+        path: .
+
+    - name: Download and extract OptiScaler
+      shell: powershell
+      run: |
+        $downloadUrl = "${{ needs.check-versions.outputs.optiscaler_download_url }}"
+        $version = "${{ needs.check-versions.outputs.optiscaler_version }}"
+        
+        Write-Host "Downloading OptiScaler from: $downloadUrl"
+        
+        # Create temp directory
+        $tempDir = "$env:TEMP\optiscaler"
+        New-Item -ItemType Directory -Path $tempDir -Force
+        
+        # Download file with retry logic
+        $fileName = Split-Path $downloadUrl -Leaf
+        $filePath = Join-Path $tempDir $fileName
+        
+        $maxRetries = 3
+        $retryCount = 0
+        $downloaded = $false
+        
+        while (-not $downloaded -and $retryCount -lt $maxRetries) {
+            try {
+                Write-Host "Download attempt $($retryCount + 1)/$maxRetries"
+                Invoke-WebRequest -Uri $downloadUrl -OutFile $filePath -UseBasicParsing -TimeoutSec 300
+                $downloaded = $true
+                Write-Host "Downloaded: $filePath"
+            } catch {
+                $retryCount++
+                Write-Warning "Download failed (attempt $retryCount): $($_.Exception.Message)"
+                if ($retryCount -ge $maxRetries) {
+                    throw "Failed to download after $maxRetries attempts"
+                }
+                Start-Sleep -Seconds (5 * $retryCount)
+            }
+        }
+        
+        # Verify file size
+        $fileInfo = Get-Item $filePath
+        if ($fileInfo.Length -lt 1MB) {
+            throw "Downloaded file appears to be too small: $($fileInfo.Length) bytes"
+        }
+        Write-Host "Download verified: $($fileInfo.Length) bytes"
+        
+        # Extract archive
+        $extractDir = Join-Path $tempDir "extracted"
+        New-Item -ItemType Directory -Path $extractDir -Force
+        
+        try {
+            if ($fileName -match "\.7z$") {
+                Write-Host "Extracting 7z archive..."
+                & 7z x "$filePath" "-o$extractDir" -y
+                if ($LASTEXITCODE -ne 0) {
+                    throw "7z extraction failed with exit code: $LASTEXITCODE"
+                }
+            } elseif ($fileName -match "\.zip$") {
+                Write-Host "Extracting zip archive..."
+                Expand-Archive -Path $filePath -DestinationPath $extractDir -Force
+            } else {
+                throw "Unsupported archive format: $fileName"
+            }
+        } catch {
+            Write-Error "Archive extraction failed: $($_.Exception.Message)"
+            Write-Host "Archive info:"
+            Get-Item $filePath | Format-List
+            exit 1
+        }
+        
+        Write-Host "Extracted to: $extractDir"
+        
+        # Find nvngx.dll in extracted files
+        $nvngxFiles = Get-ChildItem -Path $extractDir -Name "nvngx.dll" -Recurse
+        
+        if ($nvngxFiles.Count -eq 0) {
+            Write-Error "Could not find nvngx.dll in OptiScaler archive"
+            Write-Host "Archive contents:"
+            Get-ChildItem -Path $extractDir -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
+            exit 1
+        } elseif ($nvngxFiles.Count -gt 1) {
+            Write-Host "Found multiple nvngx.dll files, using the first one:"
+            $nvngxFiles | ForEach-Object { Write-Host "  $_" }
+        }
+        
+        $nvngxFile = $nvngxFiles[0]
+        $nvngxPath = (Get-ChildItem -Path $extractDir -Name "nvngx.dll" -Recurse | Select-Object -First 1).FullName
+        Write-Host "Found nvngx.dll at: $nvngxPath"
+        
+        # Verify nvngx.dll
+        $nvngxInfo = Get-Item $nvngxPath
+        if ($nvngxInfo.Length -lt 100KB) {
+            throw "nvngx.dll appears to be too small: $($nvngxInfo.Length) bytes"
+        }
+        
+        # Copy and rename to dlss-enabler-upscaler.dll
+        $targetPath = "Dll version\dlss-enabler-upscaler.dll"
+        Copy-Item -Path $nvngxPath -Destination $targetPath -Force
+        
+        Write-Host "Copied nvngx.dll to: $targetPath"
+        
+        # Verify the copied file
+        if (Test-Path $targetPath) {
+            $fileInfo = Get-Item $targetPath
+            Write-Host "File size: $($fileInfo.Length) bytes"
+            Write-Host "File date: $($fileInfo.LastWriteTime)"
+            
+            # Try to get version info
+            try {
+                $versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($targetPath)
+                Write-Host "File version: $($versionInfo.FileVersion)"
+                Write-Host "Product version: $($versionInfo.ProductVersion)"
+                Write-Host "Company: $($versionInfo.CompanyName)"
+            } catch {
+                Write-Host "Could not get version info: $($_.Exception.Message)"
+            }
+        } else {
+            Write-Error "Failed to copy dlss-enabler-upscaler.dll"
+            exit 1
+        }
+
+    - name: Download latest XeSS library
+      shell: powershell
+      run: |
+        Write-Host "Downloading latest libxess.dll..."
+        
+        $targetPath = "Dll version\libxess.dll"
+        $downloadUrl = $null
+        
+        try {
+            # Try to get the latest release
+            $headers = @{
+                'Accept' = 'application/vnd.github.v3+json'
+                'User-Agent' = 'DLSS-Enabler-Bot'
+            }
+            
+            Write-Host "Checking Intel XeSS releases..."
+            $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/intel/xess/releases" -Headers $headers -TimeoutSec 30
+            $latestRelease = $releases | Where-Object { $_.prerelease -eq $false } | Select-Object -First 1
+            
+            if ($latestRelease) {
+                Write-Host "Found XeSS release: $($latestRelease.tag_name)"
+                $asset = $latestRelease.assets | Where-Object { $_.name -eq "libxess.dll" } | Select-Object -First 1
+                if ($asset) {
+                    $downloadUrl = $asset.browser_download_url
+                    Write-Host "Using release asset: $downloadUrl"
+                } else {
+                    Write-Warning "No libxess.dll found in latest release assets"
+                    $latestRelease.assets | ForEach-Object { Write-Host "  Available: $($_.name)" }
+                }
+            } else {
+                Write-Warning "No stable releases found"
+            }
+        } catch {
+            Write-Warning "Error accessing XeSS releases API: $($_.Exception.Message)"
+        }
+        
+        # Fallback to direct URL if API failed
+        if (-not $downloadUrl) {
+            Write-Host "Using fallback direct download URL"
+            $downloadUrl = "$env:XESS_DOWNLOAD_URL"
+        }
+        
+        Write-Host "Downloading from: $downloadUrl"
+        
+        # Download with retry logic
+        $maxRetries = 3
+        $retryCount = 0
+        $downloaded = $false
+        
+        while (-not $downloaded -and $retryCount -lt $maxRetries) {
+            try {
+                Write-Host "XeSS download attempt $($retryCount + 1)/$maxRetries"
+                Invoke-WebRequest -Uri $downloadUrl -OutFile $targetPath -UseBasicParsing -TimeoutSec 300
+                $downloaded = $true
+                Write-Host "Downloaded libxess.dll successfully"
+            } catch {
+                $retryCount++
+                Write-Warning "XeSS download failed (attempt $retryCount): $($_.Exception.Message)"
+                if ($retryCount -ge $maxRetries) {
+                    Write-Error "Failed to download XeSS after $maxRetries attempts"
+                    exit 1
+                }
+                Start-Sleep -Seconds (5 * $retryCount)
+            }
+        }
+        
+        # Verify file
+        if (Test-Path $targetPath) {
+            $fileInfo = Get-Item $targetPath
+            Write-Host "XeSS file size: $($fileInfo.Length) bytes"
+            Write-Host "XeSS file date: $($fileInfo.LastWriteTime)"
+            
+            # Basic validation - XeSS library should be substantial
+            if ($fileInfo.Length -lt 1MB) {
+                Write-Warning "XeSS library seems unusually small: $($fileInfo.Length) bytes"
+            } else {
+                Write-Host "XeSS library validation passed"
+            }
+        } else {
+            Write-Error "XeSS download verification failed - file not found"
+            exit 1
+        }
+
+    - name: Update version in Inno Setup script
+      shell: powershell
+      run: |
+        $version = "${{ needs.check-versions.outputs.dlss_enabler_version }}"
+        $optiVersion = "${{ needs.check-versions.outputs.optiscaler_version }}"
+        
+        Write-Host "Updating DLSS Enabler version to: $version"
+        Write-Host "OptiScaler version: $optiVersion"
+        
+        $issFile = "DLSS enabler.iss"
+        $content = Get-Content $issFile -Raw
+        
+        # Update version
+        $content = $content -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"$version`""
+        
+        # Update output filename
+        $outputName = "dlss-enabler-setup-$version-optiscaler-$($optiVersion -replace '[^a-zA-Z0-9.-]', '')"
+        $content = $content -replace 'OutputBaseFilename=.*', "OutputBaseFilename=$outputName"
+        
+        # Save updated file
+        Set-Content -Path $issFile -Value $content -Encoding UTF8
+        
+        Write-Host "Updated Inno Setup script"
+
+    - name: Build installer with Inno Setup
+      shell: powershell
+      run: |
+        $issFile = "DLSS enabler.iss"
+        
+        Write-Host "Building installer with Inno Setup..."
+        Write-Host "Script: $issFile"
+        
+        # Use ISCC from PATH (installed by Inno Setup Action)
+        $process = Start-Process -FilePath "ISCC" -ArgumentList "`"$issFile`"" -Wait -PassThru -NoNewWindow
+        
+        if ($process.ExitCode -ne 0) {
+            Write-Error "Inno Setup compilation failed with exit code: $($process.ExitCode)"
+            exit 1
+        }
+        
+        Write-Host "Installer built successfully"
+        
+        # List output files
+        if (Test-Path "Output") {
+            Write-Host "Output directory contents:"
+            Get-ChildItem "Output" | ForEach-Object { Write-Host "  $($_.Name)" }
+        }
+
+    - name: Get current date
+      id: date
+      run: echo "date=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')" >> $env:GITHUB_OUTPUT
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dlss-enabler-installer-${{ needs.check-versions.outputs.dlss_enabler_version }}
+        path: Output/*.exe
+        retention-days: 30
+
+    - name: Create release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ needs.check-versions.outputs.dlss_enabler_version }}
+        name: "DLSS Enabler v${{ needs.check-versions.outputs.dlss_enabler_version }} (OptiScaler ${{ needs.check-versions.outputs.optiscaler_version }})"
+        body: |
+          🚀 **DLSS Enabler** - Automatic build with latest OptiScaler
+          
+          ## 📦 What's Included
+          - **OptiScaler Version**: `${{ needs.check-versions.outputs.optiscaler_version }}`
+          - **XeSS Library**: Latest from Intel repository
+          - **DLSSG to FSR3 Module**: Nukem9's mod (version 0.100)
+          
+          ## 🔧 Installation
+          1. Download the installer below
+          2. Run the setup and select your game directory
+          3. Choose installation type based on your needs:
+             - **Preferred installation (DLL package)**: Recommended for most users
+             - **Experimental support**: For AMD and Intel GPUs
+          
+          ## 📋 Release Information
+          - **Build Date**: ${{ steps.date.outputs.date }}
+          - **OptiScaler**: ${{ needs.check-versions.outputs.optiscaler_version }}
+          - **Auto-built**: This release was automatically generated when a new OptiScaler version was detected
+          
+          ## 🎮 Compatibility
+          Works with any DirectX 12 game that supports DLSS2 and DLSS3 natively.
+          
+          ## ⚠️ Important Notes
+          - For NVIDIA GPU users: Use the standard installation
+          - For AMD/Intel GPU users: Select "Experimental support" during installation
+          - Some antivirus software may flag the installer as false positive due to DLL injection techniques
+          
+          ---
+          Built with OptiScaler `${{ needs.check-versions.outputs.optiscaler_version }}`
+        files: Output/*.exe
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+        fail_on_unmatched_files: true
+        make_latest: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
