@@ -49,6 +49,14 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Cache PowerShell modules
+      uses: actions/cache@v4
+      with:
+        path: ~\Documents\PowerShell\Modules
+        key: ${{ runner.os }}-powershell-modules-${{ hashFiles('**/*.psm1') }}
+        restore-keys: |
+          ${{ runner.os }}-powershell-modules-
+
     - name: Check OptiScaler versions and determine if build needed
       id: version_check
       shell: powershell
@@ -178,8 +186,29 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    - name: Cache downloads
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ env.TEMP }}\optiscaler
+          ${{ env.TEMP }}\xess
+        key: ${{ runner.os }}-downloads-${{ needs.check-versions.outputs.optiscaler_version }}
+        restore-keys: |
+          ${{ runner.os }}-downloads-
+
     - name: Setup 7-Zip
-      uses: milliewalky/setup-7-zip@v2
+      uses: suisei-cn/actions-download-file@v1.6.0
+      id: download-7zip
+      with:
+        url: https://www.7-zip.org/a/7z2301-x64.exe
+        target: ${{ runner.temp }}/
+        filename: 7zip-installer.exe
+    
+    - name: Install 7-Zip
+      run: |
+        Start-Process -FilePath "${{ runner.temp }}/7zip-installer.exe" -ArgumentList "/S" -Wait
+        echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH
+      shell: powershell
 
     - name: Setup Inno Setup
       uses: Minionguyjpro/Inno-Setup-Action@v1.2.4

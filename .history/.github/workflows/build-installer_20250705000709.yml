@@ -178,6 +178,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    - name: Cache downloads
+      uses: actions/cache@v4
+      with:
+        path: |
+          C:\Windows\Temp\optiscaler
+          C:\Windows\Temp\xess
+        key: ${{ runner.os }}-downloads-${{ needs.check-versions.outputs.optiscaler_version }}
+        restore-keys: |
+          ${{ runner.os }}-downloads-
+
     - name: Setup 7-Zip
       uses: milliewalky/setup-7-zip@v2
 
