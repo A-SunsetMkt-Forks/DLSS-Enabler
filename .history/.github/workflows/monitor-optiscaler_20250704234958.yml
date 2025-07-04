@@ -1,0 +1,128 @@
+name: Monitor OptiScaler Releases
+
+on:
+  schedule:
+    # Check for new OptiScaler releases every 6 hours
+    - cron: '0 */6 * * *'
+  
+  workflow_dispatch:
+    inputs:
+      check_version:
+        description: 'Version to check (nightly, latest, or specific tag)'
+        required: false
+        default: 'nightly'
+
+jobs:
+  monitor-releases:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Check for new OptiScaler release
+      id: check_release
+      run: |
+        #!/bin/bash
+        set -e
+        
+        OPTISCALER_REPO="optiscaler/OptiScaler"
+        CHECK_VERSION="${{ github.event.inputs.check_version }}"
+        
+        if [ -z "$CHECK_VERSION" ]; then
+          CHECK_VERSION="nightly"
+        fi
+        
+        echo "Checking OptiScaler version: $CHECK_VERSION"
+        
+        # Function to get release info
+        get_release_info() {
+          local repo=$1
+          local version=$2
+          
+          if [ "$version" = "nightly" ]; then
+            # Get the nightly release (pre-release with tag "nightly")
+            curl -s -H "Accept: application/vnd.github.v3+json" \
+                 -H "Authorization: token $GITHUB_TOKEN" \
+                 "https://api.github.com/repos/$repo/releases" | \
+            jq -r '.[] | select(.prerelease == true and .tag_name == "nightly") | {tag_name, published_at, assets} | @base64' | head -1
+          elif [ "$version" = "latest" ]; then
+            # Get the latest stable release
+            curl -s -H "Accept: application/vnd.github.v3+json" \
+                 -H "Authorization: token $GITHUB_TOKEN" \
+                 "https://api.github.com/repos/$repo/releases/latest" | \
+            jq -r '{tag_name, published_at, assets} | @base64'
+          else
+            # Get specific version
+            curl -s -H "Accept: application/vnd.github.v3+json" \
+                 -H "Authorization: token $GITHUB_TOKEN" \
+                 "https://api.github.com/repos/$repo/releases/tags/$version" | \
+            jq -r '{tag_name, published_at, assets} | @base64'
+          fi
+        }
+        
+        # Get OptiScaler release info
+        RELEASE_DATA=$(get_release_info "$OPTISCALER_REPO" "$CHECK_VERSION")
+        
+        if [ -z "$RELEASE_DATA" ] || [ "$RELEASE_DATA" = "null" ]; then
+          echo "❌ Could not find OptiScaler release: $CHECK_VERSION"
+          exit 1
+        fi
+        
+        # Decode and parse release info
+        RELEASE_JSON=$(echo "$RELEASE_DATA" | base64 -d)
+        OPTISCALER_VERSION=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
+        PUBLISHED_AT=$(echo "$RELEASE_JSON" | jq -r '.published_at')
+        
+        echo "📦 Found OptiScaler version: $OPTISCALER_VERSION"
+        echo "📅 Published at: $PUBLISHED_AT"
+        
+        # Check if we already have a workflow run for this version in the last 24 hours
+        RECENT_RUNS=$(curl -s -H "Accept: application/vnd.github.v3+json" \
+                           -H "Authorization: token $GITHUB_TOKEN" \
+                           "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/build-installer.yml/runs?per_page=10" | \
+                      jq -r ".workflow_runs[] | select(.created_at > \"$(date -d '24 hours ago' -Iso 2>/dev/null || date -v -24H -Iso 2>/dev/null || date --date='24 hours ago' --iso-8601 2>/dev/null || echo '')\") | .head_commit.message")
+        
+        # Check if any recent run mentions this OptiScaler version
+        if echo "$RECENT_RUNS" | grep -q "$OPTISCALER_VERSION"; then
+          echo "⏭️  Recent build found for OptiScaler $OPTISCALER_VERSION - skipping"
+          echo "should_trigger=false" >> $GITHUB_OUTPUT
+        else
+          echo "🚀 No recent build found for OptiScaler $OPTISCALER_VERSION - triggering build"
+          echo "should_trigger=true" >> $GITHUB_OUTPUT
+          echo "optiscaler_version=$OPTISCALER_VERSION" >> $GITHUB_OUTPUT
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Trigger build workflow
+      if: steps.check_release.outputs.should_trigger == 'true'
+      run: |
+        echo "🔥 Triggering DLSS-Enabler build for OptiScaler ${{ steps.check_release.outputs.optiscaler_version }}"
+        
+        curl -X POST \
+          -H "Accept: application/vnd.github.v3+json" \
+          -H "Authorization: token $GITHUB_TOKEN" \
+          "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/build-installer.yml/dispatches" \
+          -d "{\"ref\":\"main\",\"inputs\":{\"optiscaler_version\":\"${{ steps.check_release.outputs.optiscaler_version }}\",\"force_build\":\"true\"}}"
+        
+        echo "✅ Build workflow triggered successfully"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create summary
+      run: |
+        echo "## OptiScaler Release Monitor Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ steps.check_release.outputs.should_trigger }}" = "true" ]; then
+          echo "🚀 **Action Taken**: Triggered build for OptiScaler ${{ steps.check_release.outputs.optiscaler_version }}" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⏭️  **Action Taken**: No build needed (recent build exists or no new version)" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Checked Version**: ${{ github.event.inputs.check_version || 'nightly' }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Check Time**: $(date -u)" >> $GITHUB_STEP_SUMMARY
