@@ -188,6 +188,7 @@ jobs:
         path: |
           Dll version/dlss-enabler-upscaler.dll
           Dll version/OptiScaler.ini
+          Dll version/libxess.dll
         key: optiscaler-${{ needs.check-versions.outputs.optiscaler_version }}-${{ hashFiles('Dll version/nvngx.ini') }}
         restore-keys: |
           optiscaler-${{ needs.check-versions.outputs.optiscaler_version }}-
@@ -271,12 +272,12 @@ jobs:
         }
         
         # Find OptiScaler.dll in extracted files (this is the main upscaler file)
-        $optiScalerFile = Get-ChildItem -Path $extractDir -Name "OptiScaler.dll" -Recurse | Select-Object -First 1
+        $optiScalerFile = Get-ChildItem -Path $extractDir -Filter "OptiScaler.dll" -Recurse | Select-Object -First 1
         
         if (-not $optiScalerFile) {
             Write-Error "Could not find OptiScaler.dll in OptiScaler archive"
             Write-Host "Looking for alternative dll files..."
-            $dllFiles = Get-ChildItem -Path $extractDir -Name "*.dll" -Recurse
+            $dllFiles = Get-ChildItem -Path $extractDir -Filter "*.dll" -Recurse
             if ($dllFiles.Count -gt 0) {
                 Write-Host "Available DLL files:"
                 $dllFiles | ForEach-Object { Write-Host "  $($_.Name)" }
@@ -300,13 +301,30 @@ jobs:
         Write-Host "Copied OptiScaler.dll to: $targetPath"
         
         # Also copy OptiScaler.ini if it exists
-        $optiScalerIniFile = Get-ChildItem -Path $extractDir -Name "OptiScaler.ini" -Recurse | Select-Object -First 1
+        $optiScalerIniFile = Get-ChildItem -Path $extractDir -Filter "OptiScaler.ini" -Recurse | Select-Object -First 1
         if ($optiScalerIniFile) {
             $targetIniPath = "Dll version\OptiScaler.ini"
             Copy-Item -Path $optiScalerIniFile.FullName -Destination $targetIniPath -Force
             Write-Host "Copied OptiScaler.ini to: $targetIniPath"
         } else {
             Write-Warning "OptiScaler.ini not found, installer may need manual configuration"
+        }
+        
+        # Also copy libxess.dll from OptiScaler package (instead of downloading separately)
+        $libxessFile = Get-ChildItem -Path $extractDir -Filter "libxess.dll" -Recurse | Select-Object -First 1
+        if ($libxessFile) {
+            $targetLibxessPath = "Dll version\libxess.dll"
+            Copy-Item -Path $libxessFile.FullName -Destination $targetLibxessPath -Force
+            Write-Host "Copied libxess.dll from OptiScaler package to: $targetLibxessPath"
+            
+            # Verify the copied libxess.dll
+            if (Test-Path $targetLibxessPath) {
+                $libxessInfo = Get-Item $targetLibxessPath
+                Write-Host "libxess.dll size: $($libxessInfo.Length) bytes"
+                Write-Host "libxess.dll date: $($libxessInfo.LastWriteTime)"
+            }
+        } else {
+            Write-Warning "libxess.dll not found in OptiScaler package, will download separately"
         }
         
         # Verify the copied file
@@ -347,7 +365,13 @@ jobs:
       if: steps.cache-xess.outputs.cache-hit != 'true'
       shell: powershell
       run: |
-        Write-Host "Downloading latest libxess.dll..."
+        # Check if libxess.dll was already copied from OptiScaler package
+        if (Test-Path "Dll version\libxess.dll") {
+            Write-Host "libxess.dll already available from OptiScaler package, skipping separate download"
+            exit 0
+        }
+        
+        Write-Host "Downloading latest libxess.dll from Intel..."
         
         $targetPath = "Dll version\libxess.dll"
         $downloadUrl = $null
