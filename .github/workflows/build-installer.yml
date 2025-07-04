@@ -271,24 +271,20 @@ jobs:
         }
         
         # Find OptiScaler.dll in extracted files (this is the main upscaler file)
-        $optiScalerFiles = Get-ChildItem -Path $extractDir -Name "OptiScaler.dll" -Recurse
+        $optiScalerFile = Get-ChildItem -Path $extractDir -Name "OptiScaler.dll" -Recurse | Select-Object -First 1
         
-        if ($optiScalerFiles.Count -eq 0) {
+        if (-not $optiScalerFile) {
             Write-Error "Could not find OptiScaler.dll in OptiScaler archive"
             Write-Host "Looking for alternative dll files..."
             $dllFiles = Get-ChildItem -Path $extractDir -Name "*.dll" -Recurse
             if ($dllFiles.Count -gt 0) {
                 Write-Host "Available DLL files:"
-                $dllFiles | ForEach-Object { Write-Host "  $_" }
+                $dllFiles | ForEach-Object { Write-Host "  $($_.Name)" }
             }
             exit 1
-        } elseif ($optiScalerFiles.Count -gt 1) {
-            Write-Host "Found multiple OptiScaler.dll files, using the first one:"
-            $optiScalerFiles | ForEach-Object { Write-Host "  $_" }
         }
         
-        $optiScalerFile = $optiScalerFiles[0]
-        $optiScalerPath = (Get-ChildItem -Path $extractDir -Name "OptiScaler.dll" -Recurse | Select-Object -First 1).FullName
+        $optiScalerPath = $optiScalerFile.FullName
         Write-Host "Found OptiScaler.dll at: $optiScalerPath"
         
         # Verify OptiScaler.dll
@@ -304,10 +300,10 @@ jobs:
         Write-Host "Copied OptiScaler.dll to: $targetPath"
         
         # Also copy OptiScaler.ini if it exists
-        $optiScalerIniPath = Join-Path (Split-Path $optiScalerPath) "OptiScaler.ini"
-        if (Test-Path $optiScalerIniPath) {
+        $optiScalerIniFile = Get-ChildItem -Path $extractDir -Name "OptiScaler.ini" -Recurse | Select-Object -First 1
+        if ($optiScalerIniFile) {
             $targetIniPath = "Dll version\OptiScaler.ini"
-            Copy-Item -Path $optiScalerIniPath -Destination $targetIniPath -Force
+            Copy-Item -Path $optiScalerIniFile.FullName -Destination $targetIniPath -Force
             Write-Host "Copied OptiScaler.ini to: $targetIniPath"
         } else {
             Write-Warning "OptiScaler.ini not found, installer may need manual configuration"
