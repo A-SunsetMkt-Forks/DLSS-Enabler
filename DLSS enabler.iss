@@ -35,7 +35,6 @@ SolidCompression=no
 WizardStyle=modern
 UsePreviousAppDir=no
 InfoBeforeFile=DLSS Enabler Intro.rtf
-SetupIconFile=FSR3.ico
 EnableDirDoesntExistWarning=yes
 Uninstallable=yes
 RestartApplications=no
@@ -80,11 +79,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 
 [Files]
-; cleanup
+; cleanup - create placeholder files for compatibility
 Source: "Dll version\nvngx.ini"; DestDir: "{app}"; DestName: "dlss-enabler-xess.dll"; Flags: ignoreversion deleteafterinstall; Components: mandatory
 Source: "Dll version\nvngx.ini"; DestDir: "{app}"; DestName: "dlss-enabler-fsr.dll"; Flags: ignoreversion deleteafterinstall; Components: mandatory
 Source: "Dll version\dlss-enabler.log"; DestDir: "{app}"; Flags: ignoreversion; Components: mandatory
 Source: "Dll version\dlss-enabler.log"; DestDir: "{app}"; DestName: "dlssg_to_fsr3.log"; Flags: ignoreversion; Components: mandatory
+Source: "Dll version\dlss-enabler.log"; DestDir: "{app}"; DestName: "fakenvapi.log"; Flags: ignoreversion; Components: mandatory
 
 ; runtime env
 Source: "NVIDIA Environment\dxgi.dll"; DestDir: "{app}"; Components: nonnvidia/localdir mainfiles/dlldxgi
