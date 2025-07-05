@@ -449,9 +449,9 @@ jobs:
         foreach ($file in $filesToCheck) {
             if (Test-Path $file) {
                 $info = Get-Item $file
-                Write-Host "✓ $file ($($info.Length) bytes, $($info.LastWriteTime))"
+                Write-Host "[OK] $file ($($info.Length) bytes, $($info.LastWriteTime))"
             } else {
-                Write-Warning "✗ Missing: $file"
+                Write-Warning "[MISSING] $file"
             }
         }
 
@@ -519,7 +519,7 @@ jobs:
       if: (matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true')
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ matrix.build_type == 'nightly' && 'nightly' || (matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version) }}
+        tag_name: ${{ matrix.build_type == 'nightly' && 'nightly' || needs.check-versions.outputs.latest_version }}
         name: "DLSS Enabler (${{ matrix.build_type }}) - OptiScaler ${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version }}"
         body: |
           🚀 **DLSS Enabler** - ${{ matrix.build_type }} build with OptiScaler ${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version }}
