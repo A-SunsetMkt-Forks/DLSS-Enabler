@@ -35,7 +35,7 @@ SolidCompression=no
 WizardStyle=modern
 UsePreviousAppDir=no
 InfoBeforeFile=DLSS Enabler Intro.rtf
-; SetupIconFile=FSR3.ico  ; Icon file missing - commented out for automated builds
+; SetupIconFile=artifacts\dlss-enabler.ico
 EnableDirDoesntExistWarning=yes
 Uninstallable=yes
 RestartApplications=no
@@ -108,6 +108,8 @@ Source: "Dll version\dlss-enabler-upscaler.dll"; DestDir: "{app}"; Flags: ignore
 Source: "Dll version\nvngx.ini"; DestDir: "{app}"; Flags: ignoreversion; Components: upscalers
 Source: "Dll version\OptiScaler.ini"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
 Source: "Dll version\libxess.dll"; DestDir: "{app}"; Flags: uninsneveruninstall; Components: upscalers
+Source: "Dll version\amd_fidelityfx_dx12.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
+Source: "Dll version\amd_fidelityfx_vk.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
 Source: "XESS LICENSE.pdf"; DestDir: "{app}"; DestName: "XESS LICENSE.pdf"; Flags: ignoreversion deleteafterinstall; Components: upscalers
 Source: "XESS LICENSE.pdf"; DestDir: "{app}/licenses"; DestName: "XESS LICENSE.pdf"; Flags: ignoreversion; Components: upscalers
 

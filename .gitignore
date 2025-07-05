@@ -13,6 +13,15 @@ Output/
 extracted/
 temp_extract/
 
+# Files sourced from OptiScaler releases (downloaded during CI)
+Dll version/dlss-enabler-upscaler.dll
+Dll version/libxess.dll
+Dll version/amd_fidelityfx_dx12.dll
+Dll version/amd_fidelityfx_vk.dll
+Dll version/OptiScaler.ini
+DLLSG mod/DisableNvidiaSignatureChecks.reg
+DLLSG mod/RestoreNvidiaSignatureChecks.reg
+
 # Visual Studio / VS Code
 .vs/
 .vscode/
@@ -45,3 +54,7 @@ ehthumbs.db
 # Auto-generated version files
 version.txt
 build_info.txt
+
+
+PR_DESCRIPTION.md
+COMMIT_MESSAGE.md

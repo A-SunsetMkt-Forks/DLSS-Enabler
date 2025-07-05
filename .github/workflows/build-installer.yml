@@ -1,15 +1,15 @@
 name: Build DLSS-Enabler Installer
 
 on:
-  # Trigger on schedule to check for new OptiScaler releases daily
+  # Trigger on schedule to check for new OptiScaler releases every 3 hours
   schedule:
-    - cron: '0 12 * * *'  # Run daily at 12:00 UTC
+    - cron: '0 */3 * * *'  # Run every 3 hours
   
   # Allow manual trigger
   workflow_dispatch:
     inputs:
       optiscaler_version:
-        description: 'Specific OptiScaler version to use (e.g., v0.7.7-pre12, nightly)'
+        description: 'Specific OptiScaler version to use (e.g., v0.7.7-pre12, nightly, latest)'
         required: false
         default: 'nightly'
       force_build:
@@ -32,16 +32,19 @@ permissions:
 
 env:
   OPTISCALER_REPO: optiscaler/OptiScaler
-  XESS_DOWNLOAD_URL: https://github.com/intel/xess/releases/latest/download/libxess.dll
 
 jobs:
   check-versions:
     runs-on: windows-latest
     outputs:
-      should_build: ${{ steps.version_check.outputs.should_build }}
-      optiscaler_version: ${{ steps.version_check.outputs.optiscaler_version }}
-      optiscaler_download_url: ${{ steps.version_check.outputs.optiscaler_download_url }}
-      dlss_enabler_version: ${{ steps.version_check.outputs.dlss_enabler_version }}
+      should_build_nightly: ${{ steps.version_check.outputs.should_build_nightly }}
+      should_build_latest: ${{ steps.version_check.outputs.should_build_latest }}
+      nightly_version: ${{ steps.version_check.outputs.nightly_version }}
+      nightly_download_url: ${{ steps.version_check.outputs.nightly_download_url }}
+      nightly_filename: ${{ steps.version_check.outputs.nightly_filename }}
+      latest_version: ${{ steps.version_check.outputs.latest_version }}
+      latest_download_url: ${{ steps.version_check.outputs.latest_download_url }}
+      latest_filename: ${{ steps.version_check.outputs.latest_filename }}
     
     steps:
     - name: Checkout repository
@@ -64,112 +67,219 @@ jobs:
                 $headers['Authorization'] = "token $env:GITHUB_TOKEN"
             }
             
-            if ($tag -eq "nightly" -or $tag -eq "latest") {
+            if ($tag -eq "nightly") {
                 $url = "https://api.github.com/repos/$repo/releases"
                 $releases = Invoke-RestMethod -Uri $url -Headers $headers
-                if ($tag -eq "nightly") {
-                    return $releases | Where-Object { $_.prerelease -eq $true -and $_.tag_name -eq "nightly" } | Select-Object -First 1
-                } else {
-                    return $releases | Where-Object { $_.prerelease -eq $false } | Select-Object -First 1
-                }
+                return $releases | Where-Object { $_.prerelease -eq $true -and $_.tag_name -eq "nightly" } | Select-Object -First 1
+            } elseif ($tag -eq "latest" -or $tag -eq "stable") {
+                $url = "https://api.github.com/repos/$repo/releases"
+                $releases = Invoke-RestMethod -Uri $url -Headers $headers
+                return $releases | Where-Object { $_.prerelease -eq $false } | Select-Object -First 1
             } else {
                 $url = "https://api.github.com/repos/$repo/releases/tags/$tag"
                 return Invoke-RestMethod -Uri $url -Headers $headers
             }
         }
 
-        # Determine which version to check
-        $targetVersion = "${{ github.event.inputs.optiscaler_version }}"
-        if (-not $targetVersion -or $targetVersion -eq "") {
-            $targetVersion = "nightly"
-        }
-
-        Write-Host "Checking OptiScaler version: $targetVersion"
-
-        try {
-            # Get OptiScaler release info
-            $release = Get-GitHubRelease -repo "$env:OPTISCALER_REPO" -tag $targetVersion
-            
-            if (-not $release) {
-                Write-Error "Could not find OptiScaler release: $targetVersion"
-                exit 1
-            }
-
-            $optiVersion = $release.tag_name
-            $publishedAt = $release.published_at
-            Write-Host "Found OptiScaler version: $optiVersion (published: $publishedAt)"
-
-            # Find the Windows zip file in assets
+        function Get-AssetDownloadUrl {
+            param($release)
             $asset = $release.assets | Where-Object { 
                 $_.name -match "OptiScaler.*\.zip$" -or $_.name -match "OptiScaler.*\.7z$" 
             } | Select-Object -First 1
-
-            if (-not $asset) {
-                Write-Error "Could not find OptiScaler zip/7z asset in release"
-                exit 1
-            }
-
-            $downloadUrl = $asset.browser_download_url
-            Write-Host "Download URL: $downloadUrl"
-
-            # Check if we have built this version before
-            $shouldBuild = $true
-            $forceValue = "${{ github.event.inputs.force_build }}"
             
-            if ($forceValue -eq "true") {
-                Write-Host "Force build requested"
-                $shouldBuild = $true
-            } else {
-                # Check if we have a release with this OptiScaler version
-                try {
-                    $existingReleases = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/releases" -Headers @{
-                        'Accept' = 'application/vnd.github.v3+json'
-                        'User-Agent' = 'DLSS-Enabler-Bot'
-                    }
-                    
-                    $existingRelease = $existingReleases | Where-Object { 
-                        $_.body -match "OptiScaler.*$([regex]::Escape($optiVersion))" -or
-                        $_.tag_name -match $optiVersion
-                    } | Select-Object -First 1
+            if (-not $asset) {
+                Write-Error "Could not find OptiScaler zip/7z asset in release $($release.tag_name)"
+                return @{ url = $null; filename = $null }
+            }
+            return @{ url = $asset.browser_download_url; filename = $asset.name }
+        }
 
-                    if ($existingRelease) {
-                        Write-Host "Found existing release with OptiScaler $optiVersion - skipping build"
-                        $shouldBuild = $false
+        function Check-ExistingBuild {
+            param($filename)
+            try {
+                $existingReleases = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/releases" -Headers @{
+                    'Accept' = 'application/vnd.github.v3+json'
+                    'User-Agent' = 'DLSS-Enabler-Bot'
+                }
+                
+                # Extract version from filename (e.g., OptiScaler_v0.7.7-pre12_20250630.7z -> v0.7.7-pre12_20250630)
+                $versionFromFilename = ""
+                if ($filename -match "OptiScaler_(.+)\.(?:7z|zip)$") {
+                    $versionFromFilename = $matches[1]
+                }
+                
+                $existingRelease = $existingReleases | Where-Object { 
+                    $_.tag_name -match [regex]::Escape($versionFromFilename) -or
+                    $_.name -match [regex]::Escape($versionFromFilename)
+                } | Select-Object -First 1
+
+                return $existingRelease -ne $null
+            } catch {
+                Write-Host "Could not check existing releases: $($_.Exception.Message)"
+                return $false
+            }
+        }
+
+        # Determine build types to check
+        $specificVersion = "${{ github.event.inputs.optiscaler_version }}"
+        $forceValue = "${{ github.event.inputs.force_build }}"
+        
+        $shouldBuildNightly = $false
+        $shouldBuildLatest = $false
+        $nightlyVersion = ""
+        $nightlyDownloadUrl = ""
+        $nightlyFilename = ""
+        $latestVersion = ""
+        $latestDownloadUrl = ""
+        $latestFilename = ""
+
+        Write-Host "Specific version: $specificVersion"
+        Write-Host "Force build: $forceValue"
+
+        # Handle specific version request
+        if ($specificVersion -and $specificVersion -ne "" -and $specificVersion -ne "nightly" -and $specificVersion -ne "latest") {
+            Write-Host "Checking specific version: $specificVersion"
+            $release = Get-GitHubRelease -repo "$env:OPTISCALER_REPO" -tag $specificVersion
+            if ($release) {
+                $assetInfo = Get-AssetDownloadUrl -release $release
+                if ($assetInfo.url) {
+                    if ($release.prerelease -or $release.tag_name -eq "nightly") {
+                        $shouldBuildNightly = $true
+                        $nightlyVersion = $release.tag_name
+                        $nightlyDownloadUrl = $assetInfo.url
+                        $nightlyFilename = $assetInfo.filename
                     } else {
-                        Write-Host "No existing release found with OptiScaler $optiVersion - will build"
-                        $shouldBuild = $true
+                        $shouldBuildLatest = $true
+                        $latestVersion = $release.tag_name
+                        $latestDownloadUrl = $assetInfo.url
+                        $latestFilename = $assetInfo.filename
                     }
-                } catch {
-                    Write-Host "Could not check existing releases, will build anyway: $($_.Exception.Message)"
-                    $shouldBuild = $true
+                }
+            }
+        } elseif ($specificVersion -eq "nightly") {
+            # Manual nightly request
+            Write-Host "Manual nightly build requested..."
+            $nightlyRelease = Get-GitHubRelease -repo "$env:OPTISCALER_REPO" -tag "nightly"
+            if ($nightlyRelease) {
+                $nightlyVersion = $nightlyRelease.tag_name
+                $assetInfo = Get-AssetDownloadUrl -release $nightlyRelease
+                
+                if ($assetInfo.url) {
+                    $shouldBuildNightly = $true
+                    $nightlyDownloadUrl = $assetInfo.url
+                    $nightlyFilename = $assetInfo.filename
+                    Write-Host "Manual nightly build: $nightlyVersion ($nightlyFilename)"
+                }
+            }
+        } elseif ($specificVersion -eq "latest") {
+            # Manual latest request
+            Write-Host "Manual latest build requested..."
+            $latestRelease = Get-GitHubRelease -repo "$env:OPTISCALER_REPO" -tag "latest"
+            if ($latestRelease) {
+                $latestVersion = $latestRelease.tag_name
+                $assetInfo = Get-AssetDownloadUrl -release $latestRelease
+                
+                if ($assetInfo.url) {
+                    $shouldBuildLatest = $true
+                    $latestDownloadUrl = $assetInfo.url
+                    $latestFilename = $assetInfo.filename
+                    Write-Host "Manual latest build: $latestVersion ($latestFilename)"
+                }
+            }
+        } else {
+            # For automatic builds, check both nightly and latest
+            # Check nightly release
+            Write-Host "Checking nightly release..."
+            $nightlyRelease = Get-GitHubRelease -repo "$env:OPTISCALER_REPO" -tag "nightly"
+            if ($nightlyRelease) {
+                $nightlyVersion = $nightlyRelease.tag_name
+                $assetInfo = Get-AssetDownloadUrl -release $nightlyRelease
+                
+                if ($assetInfo.url) {
+                    $nightlyDownloadUrl = $assetInfo.url
+                    $nightlyFilename = $assetInfo.filename
+                    
+                    if ($forceValue -eq "true") {
+                        $shouldBuildNightly = $true
+                        Write-Host "Force build - will build nightly $nightlyVersion"
+                    } else {
+                        $hasExisting = Check-ExistingBuild -filename $nightlyFilename
+                        if (-not $hasExisting) {
+                            $shouldBuildNightly = $true
+                            Write-Host "New nightly version found: $nightlyVersion ($nightlyFilename)"
+                        } else {
+                            Write-Host "Nightly $nightlyVersion already built - skipping"
+                        }
+                    }
                 }
             }
 
-            # Generate DLSS Enabler version
-            $timestamp = Get-Date -Format "yyyyMMdd.HHmmss"
-            $dlssVersion = "3.01.$timestamp"
-
-            # Output results
-            echo "should_build=$($shouldBuild.ToString().ToLower())" >> $env:GITHUB_OUTPUT
-            echo "optiscaler_version=$optiVersion" >> $env:GITHUB_OUTPUT
-            echo "optiscaler_download_url=$downloadUrl" >> $env:GITHUB_OUTPUT
-            echo "dlss_enabler_version=$dlssVersion" >> $env:GITHUB_OUTPUT
-
-            Write-Host "Should build: $shouldBuild"
-            Write-Host "OptiScaler version: $optiVersion"
-            Write-Host "DLSS Enabler version: $dlssVersion"
-
-        } catch {
-            Write-Error "Error checking versions: $($_.Exception.Message)"
-            exit 1
+            # Check latest release
+            Write-Host "Checking latest release..."
+            $latestRelease = Get-GitHubRelease -repo "$env:OPTISCALER_REPO" -tag "latest"
+            if ($latestRelease) {
+                $latestVersion = $latestRelease.tag_name
+                $assetInfo = Get-AssetDownloadUrl -release $latestRelease
+                
+                if ($assetInfo.url) {
+                    $latestDownloadUrl = $assetInfo.url
+                    $latestFilename = $assetInfo.filename
+                    
+                    if ($forceValue -eq "true") {
+                        $shouldBuildLatest = $true
+                        Write-Host "Force build - will build latest $latestVersion"
+                    } else {
+                        $hasExisting = Check-ExistingBuild -filename $latestFilename
+                        if (-not $hasExisting) {
+                            $shouldBuildLatest = $true
+                            Write-Host "New latest version found: $latestVersion ($latestFilename)"
+                        } else {
+                            Write-Host "Latest $latestVersion already built - skipping"
+                        }
+                    }
+                }
+            }
         }
+
+        # Output results
+        echo "should_build_nightly=$($shouldBuildNightly.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+        echo "should_build_latest=$($shouldBuildLatest.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+        echo "nightly_version=$nightlyVersion" >> $env:GITHUB_OUTPUT
+        echo "nightly_download_url=$nightlyDownloadUrl" >> $env:GITHUB_OUTPUT
+        echo "nightly_filename=$nightlyFilename" >> $env:GITHUB_OUTPUT
+        echo "latest_version=$latestVersion" >> $env:GITHUB_OUTPUT
+        echo "latest_download_url=$latestDownloadUrl" >> $env:GITHUB_OUTPUT
+        echo "latest_filename=$latestFilename" >> $env:GITHUB_OUTPUT
+
+        Write-Host "=== Summary ==="
+        Write-Host "Should build nightly: $shouldBuildNightly ($nightlyVersion)"
+        Write-Host "Should build latest: $shouldBuildLatest ($latestVersion)"
+        if ($shouldBuildNightly) { Write-Host "Nightly filename: $nightlyFilename" }
+        if ($shouldBuildLatest) { Write-Host "Latest filename: $latestFilename" }
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-installer:
     needs: check-versions
-    if: needs.check-versions.outputs.should_build == 'true'
+    if: needs.check-versions.outputs.should_build_nightly == 'true' || needs.check-versions.outputs.should_build_latest == 'true'
     runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - build_type: "nightly"
+            condition: ${{ needs.check-versions.outputs.should_build_nightly == 'true' }}
+            version: ${{ needs.check-versions.outputs.nightly_version }}
+            download_url: ${{ needs.check-versions.outputs.nightly_download_url }}
+            filename: ${{ needs.check-versions.outputs.nightly_filename }}
+          - build_type: "latest" 
+            condition: ${{ needs.check-versions.outputs.should_build_latest == 'true' }}
+            version: ${{ needs.check-versions.outputs.latest_version }}
+            download_url: ${{ needs.check-versions.outputs.latest_download_url }}
+            filename: ${{ needs.check-versions.outputs.latest_filename }}
+      fail-fast: false
+    
+    name: Build ${{ matrix.build_type }} installer
+    if: ${{ matrix.condition }}
     
     permissions:
       contents: write
@@ -189,19 +299,24 @@ jobs:
           Dll version/dlss-enabler-upscaler.dll
           Dll version/OptiScaler.ini
           Dll version/libxess.dll
-        key: optiscaler-${{ needs.check-versions.outputs.optiscaler_version }}-${{ hashFiles('Dll version/nvngx.ini') }}
+          Dll version/amd_fidelityfx_dx12.dll
+          Dll version/amd_fidelityfx_vk.dll
+          DLLSG mod/DisableNvidiaSignatureChecks.reg
+          DLLSG mod/RestoreNvidiaSignatureChecks.reg
+        key: optiscaler-${{ matrix.filename }}-${{ hashFiles('Dll version/nvngx.ini') }}
         restore-keys: |
-          optiscaler-${{ needs.check-versions.outputs.optiscaler_version }}-
+          optiscaler-${{ matrix.filename }}-
           optiscaler-
 
     - name: Download and extract OptiScaler
       if: steps.cache-optiscaler.outputs.cache-hit != 'true'
       shell: powershell
       run: |
-        $downloadUrl = "${{ needs.check-versions.outputs.optiscaler_download_url }}"
-        $version = "${{ needs.check-versions.outputs.optiscaler_version }}"
+        $downloadUrl = "${{ matrix.download_url }}"
+        $version = "${{ matrix.version }}"
+        $buildType = "${{ matrix.build_type }}"
         
-        Write-Host "Downloading OptiScaler from: $downloadUrl"
+        Write-Host "Downloading OptiScaler $buildType ($version) from: $downloadUrl"
         
         # Create temp directory
         $tempDir = "$env:TEMP\optiscaler"
@@ -271,209 +386,121 @@ jobs:
             Write-Host "  $relativePath" 
         }
         
-        # Find OptiScaler.dll in extracted files (this is the main upscaler file)
+        # Copy main OptiScaler.dll as dlss-enabler-upscaler.dll
         $optiScalerFile = Get-ChildItem -Path $extractDir -Filter "OptiScaler.dll" -Recurse | Select-Object -First 1
-        
         if (-not $optiScalerFile) {
-            Write-Error "Could not find OptiScaler.dll in OptiScaler archive"
-            Write-Host "Looking for alternative dll files..."
-            $dllFiles = Get-ChildItem -Path $extractDir -Filter "*.dll" -Recurse
-            if ($dllFiles.Count -gt 0) {
-                Write-Host "Available DLL files:"
-                $dllFiles | ForEach-Object { Write-Host "  $($_.Name)" }
-            }
+            Write-Error "Could not find OptiScaler.dll in archive"
             exit 1
         }
         
-        $optiScalerPath = $optiScalerFile.FullName
-        Write-Host "Found OptiScaler.dll at: $optiScalerPath"
-        
-        # Verify OptiScaler.dll
-        $optiScalerInfo = Get-Item $optiScalerPath
-        if ($optiScalerInfo.Length -lt 100KB) {
-            throw "OptiScaler.dll appears to be too small: $($optiScalerInfo.Length) bytes"
-        }
-        
-        # Copy and rename to dlss-enabler-upscaler.dll
         $targetPath = "Dll version\dlss-enabler-upscaler.dll"
-        Copy-Item -Path $optiScalerPath -Destination $targetPath -Force
-        
+        Copy-Item -Path $optiScalerFile.FullName -Destination $targetPath -Force
         Write-Host "Copied OptiScaler.dll to: $targetPath"
         
-        # Also copy OptiScaler.ini if it exists
+        # Copy OptiScaler.ini
         $optiScalerIniFile = Get-ChildItem -Path $extractDir -Filter "OptiScaler.ini" -Recurse | Select-Object -First 1
         if ($optiScalerIniFile) {
             $targetIniPath = "Dll version\OptiScaler.ini"
             Copy-Item -Path $optiScalerIniFile.FullName -Destination $targetIniPath -Force
             Write-Host "Copied OptiScaler.ini to: $targetIniPath"
-        } else {
-            Write-Warning "OptiScaler.ini not found, installer may need manual configuration"
         }
         
-        # Also copy libxess.dll from OptiScaler package (instead of downloading separately)
+        # Copy libxess.dll
         $libxessFile = Get-ChildItem -Path $extractDir -Filter "libxess.dll" -Recurse | Select-Object -First 1
         if ($libxessFile) {
             $targetLibxessPath = "Dll version\libxess.dll"
             Copy-Item -Path $libxessFile.FullName -Destination $targetLibxessPath -Force
-            Write-Host "Copied libxess.dll from OptiScaler package to: $targetLibxessPath"
-            
-            # Verify the copied libxess.dll
-            if (Test-Path $targetLibxessPath) {
-                $libxessInfo = Get-Item $targetLibxessPath
-                Write-Host "libxess.dll size: $($libxessInfo.Length) bytes"
-                Write-Host "libxess.dll date: $($libxessInfo.LastWriteTime)"
-            }
-        } else {
-            Write-Warning "libxess.dll not found in OptiScaler package, will download separately"
+            Write-Host "Copied libxess.dll to: $targetLibxessPath"
         }
         
-        # Verify the copied file
-        if (Test-Path $targetPath) {
-            $fileInfo = Get-Item $targetPath
-            Write-Host "File size: $($fileInfo.Length) bytes"
-            Write-Host "File date: $($fileInfo.LastWriteTime)"
-            
-            # Try to get version info
-            try {
-                $versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($targetPath)
-                Write-Host "File version: $($versionInfo.FileVersion)"
-                Write-Host "Product version: $($versionInfo.ProductVersion)"
-                Write-Host "Company: $($versionInfo.CompanyName)"
-            } catch {
-                Write-Host "Could not get version info: $($_.Exception.Message)"
-            }
-        } else {
-            Write-Error "Failed to copy dlss-enabler-upscaler.dll"
-            exit 1
-        }
-
-    - name: Get current week for XeSS cache
-      id: get-week
-      run: echo "week=$(Get-Date -UFormat '%Y-W%V')" >> $env:GITHUB_OUTPUT
-
-    - name: Cache XeSS library
-      uses: actions/cache@v4
-      id: cache-xess
-      with:
-        path: |
-          Dll version/libxess.dll
-        key: xess-library-${{ steps.get-week.outputs.week }}
-        restore-keys: |
-          xess-library-
-
-    - name: Download latest XeSS library
-      if: steps.cache-xess.outputs.cache-hit != 'true'
-      shell: powershell
-      run: |
-        # Check if libxess.dll was already copied from OptiScaler package
-        if (Test-Path "Dll version\libxess.dll") {
-            Write-Host "libxess.dll already available from OptiScaler package, skipping separate download"
-            exit 0
+        # Copy AMD FidelityFX DLLs (newer versions from OptiScaler)
+        $amdDx12File = Get-ChildItem -Path $extractDir -Filter "amd_fidelityfx_dx12.dll" -Recurse | Select-Object -First 1
+        if ($amdDx12File) {
+            $targetAmdDx12Path = "Dll version\amd_fidelityfx_dx12.dll"
+            Copy-Item -Path $amdDx12File.FullName -Destination $targetAmdDx12Path -Force
+            Write-Host "Copied amd_fidelityfx_dx12.dll to: $targetAmdDx12Path"
         }
         
-        Write-Host "Downloading latest libxess.dll from Intel..."
+        $amdVkFile = Get-ChildItem -Path $extractDir -Filter "amd_fidelityfx_vk.dll" -Recurse | Select-Object -First 1
+        if ($amdVkFile) {
+            $targetAmdVkPath = "Dll version\amd_fidelityfx_vk.dll"
+            Copy-Item -Path $amdVkFile.FullName -Destination $targetAmdVkPath -Force
+            Write-Host "Copied amd_fidelityfx_vk.dll to: $targetAmdVkPath"
+        }
         
-        $targetPath = "Dll version\libxess.dll"
-        $downloadUrl = $null
+        # Copy DLLS Override registry files (newer versions from OptiScaler)
+        $disableRegFile = Get-ChildItem -Path $extractDir -Filter "DisableSignatureOverride.reg" -Recurse | Select-Object -First 1
+        if ($disableRegFile) {
+            $targetDisablePath = "DLLSG mod\DisableNvidiaSignatureChecks.reg"
+            Copy-Item -Path $disableRegFile.FullName -Destination $targetDisablePath -Force
+            Write-Host "Copied DisableSignatureOverride.reg to: $targetDisablePath"
+        }
         
-        try {
-            # Try to get the latest release
-            $headers = @{
-                'Accept' = 'application/vnd.github.v3+json'
-                'User-Agent' = 'DLSS-Enabler-Bot'
-            }
-            
-            Write-Host "Checking Intel XeSS releases..."
-            $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/intel/xess/releases" -Headers $headers -TimeoutSec 30
-            $latestRelease = $releases | Where-Object { $_.prerelease -eq $false } | Select-Object -First 1
-            
-            if ($latestRelease) {
-                Write-Host "Found XeSS release: $($latestRelease.tag_name)"
-                $asset = $latestRelease.assets | Where-Object { $_.name -eq "libxess.dll" } | Select-Object -First 1
-                if ($asset) {
-                    $downloadUrl = $asset.browser_download_url
-                    Write-Host "Using release asset: $downloadUrl"
-                } else {
-                    Write-Warning "No libxess.dll found in latest release assets"
-                    $latestRelease.assets | ForEach-Object { Write-Host "  Available: $($_.name)" }
-                }
+        $enableRegFile = Get-ChildItem -Path $extractDir -Filter "EnableSignatureOverride.reg" -Recurse | Select-Object -First 1
+        if ($enableRegFile) {
+            $targetEnablePath = "DLLSG mod\RestoreNvidiaSignatureChecks.reg"
+            Copy-Item -Path $enableRegFile.FullName -Destination $targetEnablePath -Force
+            Write-Host "Copied EnableSignatureOverride.reg to: $targetEnablePath"
+        }
+        
+        # Verify copied files
+        Write-Host ""
+        Write-Host "=== Verification ==="
+        $filesToCheck = @(
+            "Dll version\dlss-enabler-upscaler.dll",
+            "Dll version\OptiScaler.ini",
+            "Dll version\libxess.dll",
+            "Dll version\amd_fidelityfx_dx12.dll",
+            "Dll version\amd_fidelityfx_vk.dll"
+        )
+        
+        foreach ($file in $filesToCheck) {
+            if (Test-Path $file) {
+                $info = Get-Item $file
+                Write-Host "✓ $file ($($info.Length) bytes, $($info.LastWriteTime))"
             } else {
-                Write-Warning "No stable releases found"
+                Write-Warning "✗ Missing: $file"
             }
-        } catch {
-            Write-Warning "Error accessing XeSS releases API: $($_.Exception.Message)"
-        }
-        
-        # Fallback to direct URL if API failed
-        if (-not $downloadUrl) {
-            Write-Host "Using fallback direct download URL"
-            $downloadUrl = "$env:XESS_DOWNLOAD_URL"
-        }
-        
-        Write-Host "Downloading from: $downloadUrl"
-        
-        # Download with retry logic
-        $maxRetries = 3
-        $retryCount = 0
-        $downloaded = $false
-        
-        while (-not $downloaded -and $retryCount -lt $maxRetries) {
-            try {
-                Write-Host "XeSS download attempt $($retryCount + 1)/$maxRetries"
-                Invoke-WebRequest -Uri $downloadUrl -OutFile $targetPath -UseBasicParsing -TimeoutSec 300
-                $downloaded = $true
-                Write-Host "Downloaded libxess.dll successfully"
-            } catch {
-                $retryCount++
-                Write-Warning "XeSS download failed (attempt $retryCount): $($_.Exception.Message)"
-                if ($retryCount -ge $maxRetries) {
-                    Write-Error "Failed to download XeSS after $maxRetries attempts"
-                    exit 1
-                }
-                Start-Sleep -Seconds (5 * $retryCount)
-            }
-        }
-        
-        # Verify file
-        if (Test-Path $targetPath) {
-            $fileInfo = Get-Item $targetPath
-            Write-Host "XeSS file size: $($fileInfo.Length) bytes"
-            Write-Host "XeSS file date: $($fileInfo.LastWriteTime)"
-            
-            # Basic validation - XeSS library should be substantial
-            if ($fileInfo.Length -lt 1MB) {
-                Write-Warning "XeSS library seems unusually small: $($fileInfo.Length) bytes"
-            } else {
-                Write-Host "XeSS library validation passed"
-            }
-        } else {
-            Write-Error "XeSS download verification failed - file not found"
-            exit 1
         }
 
     - name: Update version in Inno Setup script
       shell: powershell
       run: |
-        $version = "${{ needs.check-versions.outputs.dlss_enabler_version }}"
-        $optiVersion = "${{ needs.check-versions.outputs.optiscaler_version }}"
+        $optiVersion = "${{ matrix.version }}"
+        $buildType = "${{ matrix.build_type }}"
+        $filename = "${{ matrix.filename }}"
         
-        Write-Host "Updating DLSS Enabler version to: $version"
-        Write-Host "OptiScaler version: $optiVersion"
+        Write-Host "OptiScaler version: $optiVersion ($buildType)"
+        Write-Host "OptiScaler filename: $filename"
+        
+        # Extract version from filename for output naming
+        # Example: OptiScaler_v0.7.7-pre12_20250630.7z -> dlss-enabler-setup_v0.7.7-pre12_20250630.exe
+        $outputName = "dlss-enabler-setup_unknown"
+        if ($filename -match "OptiScaler_(.+)\.(?:7z|zip)$") {
+            $versionPart = $matches[1]
+            $outputName = "dlss-enabler-setup_$versionPart"
+        }
         
         $issFile = "DLSS enabler.iss"
         $content = Get-Content $issFile -Raw
         
-        # Update version
-        $content = $content -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"$version`""
+        # Update version to use timestamp
+        $timestamp = Get-Date -Format "yyyyMMdd.HHmmss"
+        $dlssVersion = "3.01.$timestamp"
+        $content = $content -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"$dlssVersion`""
         
         # Update output filename
-        $outputName = "dlss-enabler-setup-$version-optiscaler-$($optiVersion -replace '[^a-zA-Z0-9.-]', '')"
         $content = $content -replace 'OutputBaseFilename=.*', "OutputBaseFilename=$outputName"
+        
+        # Remove icon reference if it exists
+        $content = $content -replace 'SetupIconFile=.*', '; SetupIconFile removed - no icon'
         
         # Save updated file
         Set-Content -Path $issFile -Value $content -Encoding UTF8
         
         Write-Host "Updated Inno Setup script"
+        Write-Host "Output filename: $outputName.exe"
+        Write-Host "DLSS Enabler version: $dlssVersion"
 
     - name: Setup Inno Setup
       uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
@@ -488,22 +515,25 @@ jobs:
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: dlss-enabler-installer-${{ needs.check-versions.outputs.dlss_enabler_version }}
+        name: dlss-enabler-${{ matrix.build_type }}-${{ matrix.filename }}
         path: Output/*.exe
         retention-days: 30
 
     - name: Create release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: v${{ needs.check-versions.outputs.dlss_enabler_version }}
-        name: "DLSS Enabler v${{ needs.check-versions.outputs.dlss_enabler_version }} (OptiScaler ${{ needs.check-versions.outputs.optiscaler_version }})"
+        tag_name: ${{ matrix.build_type == 'nightly' && 'nightly' || matrix.version }}
+        name: "DLSS Enabler (${{ matrix.build_type }}) - OptiScaler ${{ matrix.version }}"
         body: |
-          🚀 **DLSS Enabler** - Automatic build with latest OptiScaler
+          🚀 **DLSS Enabler** - ${{ matrix.build_type }} build with OptiScaler ${{ matrix.version }}
           
           ## 📦 What's Included
-          - **OptiScaler Version**: `${{ needs.check-versions.outputs.optiscaler_version }}`
-          - **XeSS Library**: Latest from Intel repository
+          - **OptiScaler Version**: `${{ matrix.version }}` (${{ matrix.build_type }})
+          - **OptiScaler Package**: `${{ matrix.filename }}`
+          - **XeSS Library**: Latest from OptiScaler package
+          - **AMD FidelityFX**: Latest from OptiScaler package  
           - **DLSSG to FSR3 Module**: Nukem9's mod (version 0.100)
+          - **Registry Overrides**: Latest from OptiScaler package
           
           ## 🔧 Installation
           1. Download the installer below
@@ -514,7 +544,8 @@ jobs:
           
           ## 📋 Release Information
           - **Build Date**: ${{ steps.date.outputs.date }}
-          - **OptiScaler**: ${{ needs.check-versions.outputs.optiscaler_version }}
+          - **OptiScaler**: ${{ matrix.version }} (${{ matrix.build_type }})
+          - **Package**: ${{ matrix.filename }}
           - **Auto-built**: This release was automatically generated when a new OptiScaler version was detected
           
           ## 🎮 Compatibility
@@ -524,14 +555,15 @@ jobs:
           - For NVIDIA GPU users: Use the standard installation
           - For AMD/Intel GPU users: Select "Experimental support" during installation
           - Some antivirus software may flag the installer as false positive due to DLL injection techniques
+          - **${{ matrix.build_type == 'nightly' && 'This is a nightly build - may contain experimental features' || 'This is a stable release' }}**
           
           ---
-          Built with OptiScaler `${{ needs.check-versions.outputs.optiscaler_version }}`
+          Built with OptiScaler `${{ matrix.version }}` (${{ matrix.build_type }})
         files: Output/*.exe
         draft: false
-        prerelease: false
+        prerelease: ${{ matrix.build_type == 'nightly' }}
         generate_release_notes: true
         fail_on_unmatched_files: true
-        make_latest: true
+        make_latest: ${{ matrix.build_type == 'latest' }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
