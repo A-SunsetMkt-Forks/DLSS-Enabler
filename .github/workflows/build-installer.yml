@@ -267,19 +267,17 @@ jobs:
       matrix:
         include:
           - build_type: "nightly"
-            condition: ${{ needs.check-versions.outputs.should_build_nightly == 'true' }}
             version: ${{ needs.check-versions.outputs.nightly_version }}
             download_url: ${{ needs.check-versions.outputs.nightly_download_url }}
             filename: ${{ needs.check-versions.outputs.nightly_filename }}
           - build_type: "latest" 
-            condition: ${{ needs.check-versions.outputs.should_build_latest == 'true' }}
             version: ${{ needs.check-versions.outputs.latest_version }}
             download_url: ${{ needs.check-versions.outputs.latest_download_url }}
             filename: ${{ needs.check-versions.outputs.latest_filename }}
       fail-fast: false
     
     name: Build ${{ matrix.build_type }} installer
-    if: ${{ matrix.condition }}
+    if: (matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true')
     
     permissions:
       contents: write
