@@ -1,5 +1,5 @@
 #define MyAppName "DLSS Enabler"
-#define MyAppVersion "3.00.000.0"
+#define MyAppVersion "3.01.20250705"
 #define MyAppPublisher "artur_07305"
 ;#define MyAppURL "https://discord.com/invite/2JDHx6kcXB"
 #define MyAppExeName "my-game.exe"
@@ -20,7 +20,7 @@ DirExistsWarning=no
 LicenseFile=DLSS for AMD and Intel - License.rtf
 ; Remove the following line to run in administrative install mode (install for all users.)
 PrivilegesRequired=lowest
-OutputBaseFilename=dlss-enabler-setup-3.00.000.0a
+OutputBaseFilename=dlss-enabler-setup
 AppendDefaultDirName=no
 ; -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ; Compression type is very important here, bzip/9 is the safest one in regards to false positives, lzma2 on the other hand triggers some AVs, but reduce the file size by 50%
@@ -43,6 +43,8 @@ RestartIfNeededByRun=no
 TerminalServicesAware=no
 CreateUninstallRegKey=no
 LanguageDetectionMethod=none
+UninstallDisplayIcon={uninstallexe}
+UninstallFilesDir={app}
 ; -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ; Some AVs do not like InnoSetup in x64 configuration...
 ;ArchitecturesAllowed=x64
@@ -79,6 +81,184 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 
+[Code]
+// Global variables to track which files existed before installation
+var
+  BackupDir: String;
+  OriginalFilesExisted: TArrayOfString;
+
+// Initialize backup directory and check for existing files
+procedure InitializeBackup();
+var
+  FilesToCheck: TArrayOfString;
+  I: Integer;
+  FileName: String;
+begin
+  BackupDir := ExpandConstant('{app}') + '\dlss-enabler-backup';
+  
+  // List of files that might be overwritten by our installer
+  SetArrayLength(FilesToCheck, 11);
+  FilesToCheck[0] := 'amd_fidelityfx_dx12.dll';
+  FilesToCheck[1] := 'amd_fidelityfx_vk.dll';
+  FilesToCheck[2] := 'libxess.dll';
+  FilesToCheck[3] := 'version.dll';
+  FilesToCheck[4] := 'winmm.dll';
+  FilesToCheck[5] := 'dxgi.dll';
+  FilesToCheck[6] := 'nvngx.dll';
+  FilesToCheck[7] := 'dlss-enabler.dll';
+  FilesToCheck[8] := 'nvapi64-proxy.dll';
+  FilesToCheck[9] := 'dlss-finder.exe';
+  FilesToCheck[10] := 'plugins\dlss-enabler.asi';
+  
+  SetArrayLength(OriginalFilesExisted, 0);
+  
+  // Check which files already exist and back them up
+  for I := 0 to GetArrayLength(FilesToCheck) - 1 do
+  begin
+    FileName := ExpandConstant('{app}') + '\' + FilesToCheck[I];
+    if FileExists(FileName) then
+    begin
+      Log('Found existing file: ' + FileName);
+      SetArrayLength(OriginalFilesExisted, GetArrayLength(OriginalFilesExisted) + 1);
+      OriginalFilesExisted[GetArrayLength(OriginalFilesExisted) - 1] := FilesToCheck[I];
+      
+      // Create backup directory if it doesn't exist
+      if not DirExists(BackupDir) then
+        CreateDir(BackupDir);
+      
+      // Create subdirectory in backup if needed (e.g., for plugins\dlss-enabler.asi)
+      if Pos('\', FilesToCheck[I]) > 0 then
+      begin
+        if not DirExists(BackupDir + '\' + ExtractFileDir(FilesToCheck[I])) then
+          CreateDir(BackupDir + '\' + ExtractFileDir(FilesToCheck[I]));
+      end;
+      
+      // Backup the original file
+      if FileCopy(FileName, BackupDir + '\' + FilesToCheck[I], False) then
+        Log('Backed up: ' + FilesToCheck[I])
+      else
+        Log('Failed to backup: ' + FilesToCheck[I]);
+    end;
+  end;
+end;
+
+// Save backup info to a file for uninstaller
+procedure SaveBackupInfo();
+var
+  BackupInfoFile: String;
+  I: Integer;
+  FileContent: String;
+begin
+  BackupInfoFile := BackupDir + '\backup-info.txt';
+  FileContent := '';
+  
+  for I := 0 to GetArrayLength(OriginalFilesExisted) - 1 do
+  begin
+    FileContent := FileContent + OriginalFilesExisted[I] + #13#10;
+  end;
+  
+  if FileContent <> '' then
+    SaveStringToFile(BackupInfoFile, FileContent, False);
+end;
+
+// Restore backed up files during uninstall
+procedure RestoreBackedUpFiles();
+var
+  BackupInfoFile: String;
+  BackupContent: String;
+  FilesToRestore: TArrayOfString;
+  I: Integer;
+  OriginalFile, BackupFile: String;
+  FilesToDelete: TArrayOfString;
+begin
+  BackupInfoFile := ExpandConstant('{app}') + '\dlss-enabler-backup\backup-info.txt';
+  
+  // Initialize list of our installed files that should be deleted if no backup exists
+  SetArrayLength(FilesToDelete, 11);
+  FilesToDelete[0] := 'amd_fidelityfx_dx12.dll';
+  FilesToDelete[1] := 'amd_fidelityfx_vk.dll';
+  FilesToDelete[2] := 'libxess.dll';
+  FilesToDelete[3] := 'version.dll';
+  FilesToDelete[4] := 'winmm.dll';
+  FilesToDelete[5] := 'dxgi.dll';
+  FilesToDelete[6] := 'nvngx.dll';
+  FilesToDelete[7] := 'dlss-enabler.dll';
+  FilesToDelete[8] := 'nvapi64-proxy.dll';
+  FilesToDelete[9] := 'dlss-finder.exe';
+  FilesToDelete[10] := 'plugins\dlss-enabler.asi';
+  
+  if FileExists(BackupInfoFile) then
+  begin
+    Log('Found backup info file, restoring original files...');
+    
+    if LoadStringFromFile(BackupInfoFile, BackupContent) then
+    begin
+      FilesToRestore := SplitString(BackupContent, #13#10);
+      
+      for I := 0 to GetArrayLength(FilesToRestore) - 1 do
+      begin
+        if Trim(FilesToRestore[I]) <> '' then
+        begin
+          OriginalFile := ExpandConstant('{app}') + '\' + Trim(FilesToRestore[I]);
+          BackupFile := ExpandConstant('{app}') + '\dlss-enabler-backup\' + Trim(FilesToRestore[I]);
+          
+          if FileExists(BackupFile) then
+          begin
+            // Create target directory if it doesn't exist (for subdirectories like plugins)
+            if Pos('\', Trim(FilesToRestore[I])) > 0 then
+            begin
+              if not DirExists(ExpandConstant('{app}') + '\' + ExtractFileDir(Trim(FilesToRestore[I]))) then
+                CreateDir(ExpandConstant('{app}') + '\' + ExtractFileDir(Trim(FilesToRestore[I])));
+            end;
+            
+            if FileCopy(BackupFile, OriginalFile, True) then
+              Log('Restored original file: ' + Trim(FilesToRestore[I]))
+            else
+              Log('Failed to restore: ' + Trim(FilesToRestore[I]));
+          end;
+        end;
+      end;
+    end;
+  end
+  else
+  begin
+    Log('No backup info found, deleting our installed files...');
+    // Delete our files if no backups exist (clean installation)
+    for I := 0 to GetArrayLength(FilesToDelete) - 1 do
+    begin
+      OriginalFile := ExpandConstant('{app}') + '\' + FilesToDelete[I];
+      if FileExists(OriginalFile) then
+      begin
+        if DeleteFile(OriginalFile) then
+          Log('Deleted our installed file: ' + FilesToDelete[I])
+        else
+          Log('Failed to delete: ' + FilesToDelete[I]);
+      end;
+    end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssInstall then
+  begin
+    InitializeBackup();
+  end
+  else if CurStep = ssPostInstall then
+  begin
+    SaveBackupInfo();
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    Log('Starting uninstall - restoring backed up files...');
+    RestoreBackedUpFiles();
+  end;
+end;
+
 [Files]
 ; cleanup
 Source: "Dll version\nvngx.ini"; DestDir: "{app}"; DestName: "dlss-enabler-xess.dll"; Flags: ignoreversion deleteafterinstall; Components: mandatory
@@ -107,7 +287,7 @@ Source: "DLLSG mod\nvngx.dll"; DestDir: "{app}"; DestName: "nvngx-wrapper.dll"; 
 Source: "Dll version\dlss-enabler-upscaler.dll"; DestDir: "{app}"; Flags: ignoreversion; Components: upscalers
 Source: "Dll version\nvngx.ini"; DestDir: "{app}"; Flags: ignoreversion; Components: upscalers
 Source: "Dll version\OptiScaler.ini"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
-Source: "Dll version\libxess.dll"; DestDir: "{app}"; Flags: uninsneveruninstall; Components: upscalers
+Source: "Dll version\libxess.dll"; DestDir: "{app}"; Flags: ignoreversion; Components: upscalers
 Source: "Dll version\amd_fidelityfx_dx12.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
 Source: "Dll version\amd_fidelityfx_vk.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
 Source: "XESS LICENSE.pdf"; DestDir: "{app}"; DestName: "XESS LICENSE.pdf"; Flags: ignoreversion deleteafterinstall; Components: upscalers
@@ -125,10 +305,35 @@ Source: "Readme (DLSS enabler).txt"; DestDir: "{app}/licenses"; Flags: ignorever
 
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
+[UninstallDelete]
+; Only delete files that are specifically part of DLSS Enabler (not original game files)
+Type: files; Name: "{app}\dlss-enabler.log"
+Type: files; Name: "{app}\dlssg_to_fsr3.log"
+Type: files; Name: "{app}\nvngx.ini"
+Type: files; Name: "{app}\OptiScaler.ini"
+Type: files; Name: "{app}\dlssg_to_fsr3.ini"
+Type: files; Name: "{app}\DisableNvidiaSignatureChecks.reg"
+Type: files; Name: "{app}\RestoreNvidiaSignatureChecks.reg"
+Type: files; Name: "{app}\_nvngx.dll"
+Type: files; Name: "{app}\nvngx-wrapper.dll"
+Type: files; Name: "{app}\dlss-enabler-upscaler.dll"
+Type: files; Name: "{app}\READ ME (DLSSG to FSR3 mod).txt"
+Type: files; Name: "{app}\LICENSE (DLSSG to FSR3 mod).txt"
+Type: files; Name: "{app}\XESS LICENSE.pdf"
+Type: files; Name: "{app}\Readme (DLSS enabler).txt"
+Type: filesandordirs; Name: "{app}\licenses"
+Type: filesandordirs; Name: "{app}\plugins"
+Type: filesandordirs; Name: "{app}\dlss-enabler-backup"
+Type: dirifempty; Name: "{app}"
+
 [Icons]
 
 [Run]
 Filename: "{app}\licenses\Readme (DLSS enabler).txt"; Description: "View the DLSS Enabler README file"; Flags: postinstall shellexec skipifsilent
 Filename: "{app}\nvngx.ini"; Description: "Edit the configuration file (optional)"; Flags: postinstall shellexec skipifsilent unchecked
 Filename: "{app}\dlss-finder.exe"; Parameters: "/s"; StatusMsg: "Disabling NVIDIA signature checks for DLSS 3.7"; WorkingDir: "{app}"; Description: "DLSS 3.7 activation step"; Flags: skipifsilent skipifdoesntexist
+
+[UninstallRun]
+; Clean up any processes that might be using our DLLs
+Filename: "taskkill"; Parameters: "/f /im dlss-finder.exe"; Flags: runhidden; RunOnceId: "killdlssfinder"
 

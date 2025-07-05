@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       optiscaler_version:
-        description: 'Specific OptiScaler version to use (e.g., v0.7.7-pre12, nightly, latest)'
+        description: 'Specific OptiScaler version to use (e.g., v0.7.7-pre12, nightly, latest, or leave empty for auto-detect both)'
         required: false
-        default: 'nightly'
+        default: ''
       force_build:
         description: 'Force build even if no new version'
         type: boolean
@@ -123,6 +123,7 @@ jobs:
         # Determine build types to check
         $specificVersion = "${{ github.event.inputs.optiscaler_version }}"
         $forceValue = "${{ github.event.inputs.force_build }}"
+        $isScheduledRun = "${{ github.event_name }}" -eq "schedule"
         
         $shouldBuildNightly = $false
         $shouldBuildLatest = $false
@@ -133,10 +134,12 @@ jobs:
         $latestDownloadUrl = ""
         $latestFilename = ""
 
+        Write-Host "Event: ${{ github.event_name }}"
         Write-Host "Specific version: $specificVersion"
         Write-Host "Force build: $forceValue"
+        Write-Host "Scheduled run: $isScheduledRun"
 
-        # Handle specific version request
+        # Handle specific version request (manual workflow_dispatch with specific version)
         if ($specificVersion -and $specificVersion -ne "" -and $specificVersion -ne "nightly" -and $specificVersion -ne "latest") {
             Write-Host "Checking specific version: $specificVersion"
             $release = Get-GitHubRelease -repo "$env:OPTISCALER_REPO" -tag $specificVersion
@@ -187,7 +190,9 @@ jobs:
                 }
             }
         } else {
-            # For automatic builds, check both nightly and latest
+            # For automatic builds (scheduled or push) or manual with empty/default values, check both nightly and latest
+            Write-Host "Automatic build - checking both nightly and latest releases..."
+            
             # Check nightly release
             Write-Host "Checking nightly release..."
             $nightlyRelease = Get-GitHubRelease -repo "$env:OPTISCALER_REPO" -tag "nightly"
