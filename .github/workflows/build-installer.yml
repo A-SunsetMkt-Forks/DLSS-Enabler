@@ -269,19 +269,21 @@ jobs:
       fail-fast: false
     
     name: Build ${{ matrix.build_type }} installer
-    if: (matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true')
     
     permissions:
       contents: write
       
     steps:
     - name: Checkout repository
+      if: (matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true')
       uses: actions/checkout@v4
 
     - name: Setup 7-Zip
+      if: (matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true')
       uses: milliewalky/setup-7-zip@v2
 
     - name: Cache OptiScaler download
+      if: (matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true')
       uses: actions/cache@v4
       id: cache-optiscaler
       with:
@@ -299,7 +301,7 @@ jobs:
           optiscaler-
 
     - name: Download and extract OptiScaler
-      if: steps.cache-optiscaler.outputs.cache-hit != 'true'
+      if: steps.cache-optiscaler.outputs.cache-hit != 'true' && ((matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true'))
       shell: powershell
       run: |
         $downloadUrl = "${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_download_url || needs.check-versions.outputs.latest_download_url }}"
@@ -454,6 +456,7 @@ jobs:
         }
 
     - name: Update version in Inno Setup script
+      if: (matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true')
       shell: powershell
       run: |
         $optiVersion = "${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version }}"
@@ -493,16 +496,19 @@ jobs:
         Write-Host "DLSS Enabler version: $dlssVersion"
 
     - name: Setup Inno Setup
+      if: (matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true')
       uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
       with:
         # Use default settings - no code signing for now
         path: "DLSS enabler.iss"
 
     - name: Get current date
+      if: (matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true')
       id: date
       run: echo "date=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')" >> $env:GITHUB_OUTPUT
 
     - name: Upload build artifacts
+      if: (matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true')
       uses: actions/upload-artifact@v4
       with:
         name: dlss-enabler-${{ matrix.build_type }}-${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_filename || needs.check-versions.outputs.latest_filename }}
@@ -510,6 +516,7 @@ jobs:
         retention-days: 30
 
     - name: Create release
+      if: (matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true')
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ matrix.build_type == 'nightly' && 'nightly' || (matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version) }}
