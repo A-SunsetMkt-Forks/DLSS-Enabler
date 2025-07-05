@@ -440,6 +440,28 @@ jobs:
             Write-Host "Copied EnableSignatureOverride.reg to: $targetEnablePath"
         }
         
+        # Copy license files from OptiScaler
+        $xessLicenseFile = Get-ChildItem -Path $extractDir -Filter "XeSS_LICENSE.txt" -Recurse | Select-Object -First 1
+        if ($xessLicenseFile) {
+            $targetXessPath = "Dll version\XeSS_LICENSE.txt"
+            Copy-Item -Path $xessLicenseFile.FullName -Destination $targetXessPath -Force
+            Write-Host "Copied XeSS_LICENSE.txt to: $targetXessPath"
+        }
+        
+        $fidelityFxLicenseFile = Get-ChildItem -Path $extractDir -Filter "FidelityFX_LICENSE.md" -Recurse | Select-Object -First 1
+        if ($fidelityFxLicenseFile) {
+            $targetFidelityFxPath = "Dll version\FidelityFX_LICENSE.md"
+            Copy-Item -Path $fidelityFxLicenseFile.FullName -Destination $targetFidelityFxPath -Force
+            Write-Host "Copied FidelityFX_LICENSE.md to: $targetFidelityFxPath"
+        }
+        
+        $directXLicenseFile = Get-ChildItem -Path $extractDir -Filter "DirectX_LICENSE.txt" -Recurse | Select-Object -First 1
+        if ($directXLicenseFile) {
+            $targetDirectXPath = "Dll version\DirectX_LICENSE.txt"
+            Copy-Item -Path $directXLicenseFile.FullName -Destination $targetDirectXPath -Force
+            Write-Host "Copied DirectX_LICENSE.txt to: $targetDirectXPath"
+        }
+        
         # Verify copied files
         Write-Host ""
         Write-Host "=== Verification ==="
@@ -448,7 +470,12 @@ jobs:
             "Dll version\OptiScaler.ini",
             "Dll version\libxess.dll",
             "Dll version\amd_fidelityfx_dx12.dll",
-            "Dll version\amd_fidelityfx_vk.dll"
+            "Dll version\amd_fidelityfx_vk.dll",
+            "Dll version\XeSS_LICENSE.txt",
+            "Dll version\FidelityFX_LICENSE.md",
+            "Dll version\DirectX_LICENSE.txt",
+            "DLLSG mod\DisableNvidiaSignatureChecks.reg",
+            "DLLSG mod\RestoreNvidiaSignatureChecks.reg"
         )
         
         foreach ($file in $filesToCheck) {

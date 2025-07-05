@@ -94,8 +94,8 @@ Source: "DLLSG mod\nvngx.dll"; DestDir: "{app}"; DestName: "_nvngx.dll"; Flags: 
 
 ; DLSSG
 Source: "DLLSG mod\dlssg_to_fsr3.ini"; DestDir: "{app}"; Flags: ignoreversion; Components: mandatory/fgdebug
-Source: "DlssOverrides\DisableSignatureOverride.reg"; DestDir: "{app}"; DestName: "DisableNvidiaSignatureChecks.reg"; Flags: ignoreversion; Components: mandatory/regentries nonnvidia/localdir
-Source: "DlssOverrides\EnableSignatureOverride.reg"; DestDir: "{app}"; DestName: "RestoreNvidiaSignatureChecks.reg"; Flags: ignoreversion; Components: mandatory/regentries nonnvidia/localdir
+Source: "DLLSG mod\DisableNvidiaSignatureChecks.reg"; DestDir: "{app}"; DestName: "DisableNvidiaSignatureChecks.reg"; Flags: ignoreversion; Components: mandatory/regentries nonnvidia/localdir
+Source: "DLLSG mod\RestoreNvidiaSignatureChecks.reg"; DestDir: "{app}"; DestName: "RestoreNvidiaSignatureChecks.reg"; Flags: ignoreversion; Components: mandatory/regentries nonnvidia/localdir
 Source: "DLLSG mod\dlssg_to_fsr3_amd_is_better.dll"; DestDir: "{app}"; Flags: ignoreversion; Components: mandatory mainfiles/dllversion mainfiles/asiversion mainfiles/dllwinmm mainfiles/dlldxgi
 Source: "DLLSG mod\READ ME.txt"; DestDir: "{app}"; DestName: "READ ME (DLSSG to FSR3 mod).txt"; Flags: ignoreversion deleteafterinstall; Components: mandatory mainfiles/dllversion mainfiles/asiversion mainfiles/dllwinmm mainfiles/dlldxgi
 Source: "DLLSG mod\READ ME.txt"; DestDir: "{app}/licenses"; DestName: "READ ME (DLSSG to FSR3 mod).txt"; Flags: ignoreversion; Components: mandatory mainfiles/dllversion mainfiles/asiversion mainfiles/dllwinmm mainfiles/dlldxgi
@@ -103,16 +103,16 @@ Source: "DLLSG mod\LICENSE.txt"; DestDir: "{app}"; DestName: "LICENSE (DLSSG to 
 Source: "DLLSG mod\LICENSE.txt"; DestDir: "{app}/licenses"; DestName: "LICENSE (DLSSG to FSR3 mod).txt"; Flags: ignoreversion; Components: mandatory mainfiles/dllversion mainfiles/asiversion mainfiles/dllwinmm mainfiles/dlldxgi
 Source: "DLLSG mod\nvngx.dll"; DestDir: "{app}"; DestName: "nvngx-wrapper.dll"; Flags: ignoreversion; Components: mandatory mainfiles/dllversion mainfiles/asiversion mainfiles/dllwinmm mainfiles/dlldxgi
 
-; upscalers - using OptiScaler structure
-Source: "OptiScaler.dll"; DestDir: "{app}"; DestName: "dlss-enabler-upscaler.dll"; Flags: ignoreversion; Components: upscalers
-Source: "OptiScaler.ini"; DestDir: "{app}"; DestName: "nvngx.ini"; Flags: ignoreversion; Components: upscalers
-Source: "libxess.dll"; DestDir: "{app}"; Flags: uninsneveruninstall; Components: upscalers
-Source: "amd_fidelityfx_dx12.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
-Source: "amd_fidelityfx_vk.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
-Source: "Licenses\XeSS_LICENSE.txt"; DestDir: "{app}"; DestName: "XESS LICENSE.pdf"; Flags: ignoreversion deleteafterinstall; Components: upscalers
-Source: "Licenses\XeSS_LICENSE.txt"; DestDir: "{app}/licenses"; DestName: "XESS LICENSE.txt"; Flags: ignoreversion; Components: upscalers
-Source: "Licenses\FidelityFX_LICENSE.md"; DestDir: "{app}/licenses"; Flags: ignoreversion; Components: upscalers
-Source: "Licenses\DirectX_LICENSE.txt"; DestDir: "{app}/licenses"; Flags: ignoreversion; Components: upscalers
+; upscalers - using OptiScaler files from workflow-copied locations
+Source: "Dll version\dlss-enabler-upscaler.dll"; DestDir: "{app}"; Flags: ignoreversion; Components: upscalers
+Source: "Dll version\OptiScaler.ini"; DestDir: "{app}"; DestName: "nvngx.ini"; Flags: ignoreversion; Components: upscalers
+Source: "Dll version\libxess.dll"; DestDir: "{app}"; Flags: uninsneveruninstall; Components: upscalers
+Source: "Dll version\amd_fidelityfx_dx12.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
+Source: "Dll version\amd_fidelityfx_vk.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
+Source: "Dll version\XeSS_LICENSE.txt"; DestDir: "{app}"; DestName: "XESS LICENSE.pdf"; Flags: ignoreversion deleteafterinstall; Components: upscalers
+Source: "Dll version\XeSS_LICENSE.txt"; DestDir: "{app}/licenses"; DestName: "XESS LICENSE.txt"; Flags: ignoreversion; Components: upscalers
+Source: "Dll version\FidelityFX_LICENSE.md"; DestDir: "{app}/licenses"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
+Source: "Dll version\DirectX_LICENSE.txt"; DestDir: "{app}/licenses"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
 
 ; main module
 Source: "Dll version\dlss-enabler.asi"; DestDir: "{app}/plugins"; DestName: "dlss-enabler.asi"; Flags: confirmoverwrite; Components: mainfiles/asiversion
