@@ -109,8 +109,10 @@ Source: "Dll version\OptiScaler.ini"; DestDir: "{app}"; DestName: "nvngx.ini"; F
 Source: "Dll version\libxess.dll"; DestDir: "{app}"; Flags: uninsneveruninstall; Components: upscalers
 Source: "Dll version\amd_fidelityfx_dx12.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
 Source: "Dll version\amd_fidelityfx_vk.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
-Source: "Dll version\XeSS_LICENSE.txt"; DestDir: "{app}"; DestName: "XESS LICENSE.pdf"; Flags: ignoreversion deleteafterinstall; Components: upscalers
-Source: "Dll version\XeSS_LICENSE.txt"; DestDir: "{app}/licenses"; DestName: "XESS LICENSE.txt"; Flags: ignoreversion; Components: upscalers
+; Use repository XESS license as primary, OptiScaler as secondary
+Source: "XESS LICENSE.pdf"; DestDir: "{app}"; DestName: "XESS LICENSE.pdf"; Flags: ignoreversion deleteafterinstall; Components: upscalers
+Source: "XESS LICENSE.pdf"; DestDir: "{app}/licenses"; DestName: "XESS LICENSE.pdf"; Flags: ignoreversion; Components: upscalers
+Source: "Dll version\XeSS_LICENSE.txt"; DestDir: "{app}/licenses"; DestName: "XeSS_LICENSE.txt"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
 Source: "Dll version\FidelityFX_LICENSE.md"; DestDir: "{app}/licenses"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
 Source: "Dll version\DirectX_LICENSE.txt"; DestDir: "{app}/licenses"; Flags: ignoreversion skipifsourcedoesntexist; Components: upscalers
 
