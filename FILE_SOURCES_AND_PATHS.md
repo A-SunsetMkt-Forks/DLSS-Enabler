@@ -1,22 +1,24 @@
 # DLSS-Enabler File Sources and Path Management
 
-## File Source Classification
+## Build Strategy: Dynamic OptiScaler Integration
 
-### ✅ Files from OptiScaler Release (Downloaded by Workflow)
-These files are extracted from OptiScaler releases and copied to target locations by the GitHub Actions workflow:
+### ✅ Files Downloaded from OptiScaler Release (NOT stored in repo)
+These files are downloaded from OptiScaler releases during the build process and should NOT be stored in the repository:
 
-| OptiScaler File | Workflow Copies To | Installer References | Purpose |
+| OptiScaler File | Build Copies To | Installer References | Purpose |
 |----------------|-------------------|---------------------|---------|
 | `OptiScaler.dll` | `Dll version\dlss-enabler-upscaler.dll` | `Dll version\dlss-enabler-upscaler.dll` | Main upscaling engine |
 | `OptiScaler.ini` | `Dll version\OptiScaler.ini` | `Dll version\OptiScaler.ini` | Configuration file |
 | `libxess.dll` | `Dll version\libxess.dll` | `Dll version\libxess.dll` | Intel XeSS library |
+| `libxess_dx11.dll` | `Dll version\libxess_dx11.dll` | `Dll version\libxess_dx11.dll` | Intel XeSS DX11 library |
 | `amd_fidelityfx_dx12.dll` | `Dll version\amd_fidelityfx_dx12.dll` | `Dll version\amd_fidelityfx_dx12.dll` | AMD FSR DX12 |
 | `amd_fidelityfx_vk.dll` | `Dll version\amd_fidelityfx_vk.dll` | `Dll version\amd_fidelityfx_vk.dll` | AMD FSR Vulkan |
+| `D3D12_Optiscaler\D3D12Core.dll` | `Dll version\D3D12Core.dll` | `Dll version\D3D12Core.dll` | DirectX 12 support |
 | `DlssOverrides\DisableSignatureOverride.reg` | `DLLSG mod\DisableNvidiaSignatureChecks.reg` | `DLLSG mod\DisableNvidiaSignatureChecks.reg` | Registry override |
 | `DlssOverrides\EnableSignatureOverride.reg` | `DLLSG mod\RestoreNvidiaSignatureChecks.reg` | `DLLSG mod\RestoreNvidiaSignatureChecks.reg` | Registry restore |
-| `Licenses\XeSS_LICENSE.txt` | `Dll version\XeSS_LICENSE.txt` | `Dll version\XeSS_LICENSE.txt` | XeSS license (optional) |
-| `Licenses\FidelityFX_LICENSE.md` | `Dll version\FidelityFX_LICENSE.md` | `Dll version\FidelityFX_LICENSE.md` | FSR license (optional) |
-| `Licenses\DirectX_LICENSE.txt` | `Dll version\DirectX_LICENSE.txt` | `Dll version\DirectX_LICENSE.txt` | DirectX license (optional) |
+| `Licenses\XeSS_LICENSE.txt` | `Dll version\XeSS_LICENSE.txt` | `Dll version\XeSS_LICENSE.txt` | XeSS license |
+| `Licenses\FidelityFX_LICENSE.md` | `Dll version\FidelityFX_LICENSE.md` | `Dll version\FidelityFX_LICENSE.md` | FSR license |
+| `Licenses\DirectX_LICENSE.txt` | `Dll version\DirectX_LICENSE.txt` | `Dll version\DirectX_LICENSE.txt` | DirectX license |
 
 ### ✅ Files from Repository (Always Available)
 These files are part of the DLSS-Enabler repository and are always available:
@@ -25,7 +27,7 @@ These files are part of the DLSS-Enabler repository and are always available:
 |----------------|---------------------|---------|
 | `Dll version\dlss-enabler.asi` | `Dll version\dlss-enabler.asi` | Main DLSS Enabler module |
 | `Dll version\dlss-enabler.log` | `Dll version\dlss-enabler.log` | Log file template |
-| `Dll version\nvngx.ini` | `Dll version\nvngx.ini` | Legacy config file |
+| `Dll version\nvngx.ini` | `Dll version\nvngx.ini` | Legacy config file (for cleanup) |
 | `DLLSG mod\dlssg_to_fsr3_amd_is_better.dll` | `DLLSG mod\dlssg_to_fsr3_amd_is_better.dll` | DLSSG to FSR3 converter |
 | `DLLSG mod\nvngx.dll` | `DLLSG mod\nvngx.dll` | NVNGX wrapper |
 | `DLLSG mod\dlssg_to_fsr3.ini` | `DLLSG mod\dlssg_to_fsr3.ini` | DLSSG config |
@@ -34,24 +36,33 @@ These files are part of the DLSS-Enabler repository and are always available:
 | `NVIDIA Environment\dxgi.dll` | `NVIDIA Environment\dxgi.dll` | NVIDIA runtime |
 | `NVIDIA Environment\dlss-finder.bin` | `NVIDIA Environment\dlss-finder.bin` | DLSS detector |
 | `NVIDIA Environment\nvapi64-proxy.dll` | `NVIDIA Environment\nvapi64-proxy.dll` | NVAPI proxy |
-| `XESS LICENSE.pdf` | `XESS LICENSE.pdf` | XeSS license (repository version) |
 | `Readme (DLSS enabler).txt` | `Readme (DLSS enabler).txt` | Main documentation |
+| `DLSS Enabler Intro.rtf` | `DLSS Enabler Intro.rtf` | Introduction file |
+| `License (DLSS enabler).txt` | `License (DLSS enabler).txt` | DLSS Enabler license |
 
-## Installer Script Strategy
+## Build Process Flow
 
-### ✅ Primary Sources (Always Available)
-- Repository files are always referenced directly
-- Repository XESS license takes priority over OptiScaler version
+### 🚀 Automated Build Process:
+1. **Download OptiScaler Release**: GitHub Actions downloads latest OptiScaler 7z archive
+2. **Extract OptiScaler Files**: Extract all files from archive to build directory
+3. **Copy to Build Structure**: Map OptiScaler files to expected installer paths
+4. **Compile Installer**: Inno Setup compiles with both repository and OptiScaler files
+5. **Result**: Complete installer with latest OptiScaler libraries and all DLSS Enabler features
 
-### ✅ Secondary Sources (Dynamic/Optional)
-- OptiScaler files use `skipifsourcedoesntexist` flag
-- If workflow fails to copy OptiScaler files, installer still works with repository files
-- OptiScaler license files are supplementary to repository versions
+### 📁 File Mapping Strategy:
+- **OptiScaler files** use `skipifsourcedoesntexist` flag in installer script
+- **Repository files** are always available and provide core functionality
+- **No file duplication**: Repository only contains files not available in OptiScaler
+- **Dynamic licensing**: Uses OptiScaler license files instead of duplicating them
 
-### ✅ Error Handling
-- All OptiScaler-sourced files use `skipifsourcedoesntexist` to prevent build failures
-- Repository files provide baseline functionality even without OptiScaler updates
-- Workflow validation ensures OptiScaler files are copied before build
+## Benefits
+
+✅ **Always Latest**: Automatically uses newest OptiScaler libraries  
+✅ **Reduced Repo Size**: No large binary files stored in repository  
+✅ **No Duplication**: Single source of truth for each file type  
+✅ **Build Resilience**: Graceful handling of missing OptiScaler files  
+✅ **Legal Compliance**: Uses original license files from each project  
+✅ **Easy Updates**: OptiScaler updates require no repository changes
 
 ## Build Process Flow
 
