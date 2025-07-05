@@ -265,15 +265,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        include:
-          - build_type: "nightly"
-            version: ${{ needs.check-versions.outputs.nightly_version }}
-            download_url: ${{ needs.check-versions.outputs.nightly_download_url }}
-            filename: ${{ needs.check-versions.outputs.nightly_filename }}
-          - build_type: "latest" 
-            version: ${{ needs.check-versions.outputs.latest_version }}
-            download_url: ${{ needs.check-versions.outputs.latest_download_url }}
-            filename: ${{ needs.check-versions.outputs.latest_filename }}
+        build_type: ["nightly", "latest"]
       fail-fast: false
     
     name: Build ${{ matrix.build_type }} installer
@@ -301,17 +293,17 @@ jobs:
           Dll version/amd_fidelityfx_vk.dll
           DLLSG mod/DisableNvidiaSignatureChecks.reg
           DLLSG mod/RestoreNvidiaSignatureChecks.reg
-        key: optiscaler-${{ matrix.filename }}-${{ hashFiles('Dll version/nvngx.ini') }}
+        key: optiscaler-${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_filename || needs.check-versions.outputs.latest_filename }}-${{ hashFiles('Dll version/nvngx.ini') }}
         restore-keys: |
-          optiscaler-${{ matrix.filename }}-
+          optiscaler-${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_filename || needs.check-versions.outputs.latest_filename }}-
           optiscaler-
 
     - name: Download and extract OptiScaler
       if: steps.cache-optiscaler.outputs.cache-hit != 'true'
       shell: powershell
       run: |
-        $downloadUrl = "${{ matrix.download_url }}"
-        $version = "${{ matrix.version }}"
+        $downloadUrl = "${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_download_url || needs.check-versions.outputs.latest_download_url }}"
+        $version = "${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version }}"
         $buildType = "${{ matrix.build_type }}"
         
         Write-Host "Downloading OptiScaler $buildType ($version) from: $downloadUrl"
@@ -464,9 +456,9 @@ jobs:
     - name: Update version in Inno Setup script
       shell: powershell
       run: |
-        $optiVersion = "${{ matrix.version }}"
+        $optiVersion = "${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version }}"
         $buildType = "${{ matrix.build_type }}"
-        $filename = "${{ matrix.filename }}"
+        $filename = "${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_filename || needs.check-versions.outputs.latest_filename }}"
         
         Write-Host "OptiScaler version: $optiVersion ($buildType)"
         Write-Host "OptiScaler filename: $filename"
@@ -513,21 +505,21 @@ jobs:
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: dlss-enabler-${{ matrix.build_type }}-${{ matrix.filename }}
+        name: dlss-enabler-${{ matrix.build_type }}-${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_filename || needs.check-versions.outputs.latest_filename }}
         path: Output/*.exe
         retention-days: 30
 
     - name: Create release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ matrix.build_type == 'nightly' && 'nightly' || matrix.version }}
-        name: "DLSS Enabler (${{ matrix.build_type }}) - OptiScaler ${{ matrix.version }}"
+        tag_name: ${{ matrix.build_type == 'nightly' && 'nightly' || (matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version) }}
+        name: "DLSS Enabler (${{ matrix.build_type }}) - OptiScaler ${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version }}"
         body: |
-          🚀 **DLSS Enabler** - ${{ matrix.build_type }} build with OptiScaler ${{ matrix.version }}
+          🚀 **DLSS Enabler** - ${{ matrix.build_type }} build with OptiScaler ${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version }}
           
           ## 📦 What's Included
-          - **OptiScaler Version**: `${{ matrix.version }}` (${{ matrix.build_type }})
-          - **OptiScaler Package**: `${{ matrix.filename }}`
+          - **OptiScaler Version**: `${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version }}` (${{ matrix.build_type }})
+          - **OptiScaler Package**: `${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_filename || needs.check-versions.outputs.latest_filename }}`
           - **XeSS Library**: Latest from OptiScaler package
           - **AMD FidelityFX**: Latest from OptiScaler package  
           - **DLSSG to FSR3 Module**: Nukem9's mod (version 0.100)
@@ -542,8 +534,8 @@ jobs:
           
           ## 📋 Release Information
           - **Build Date**: ${{ steps.date.outputs.date }}
-          - **OptiScaler**: ${{ matrix.version }} (${{ matrix.build_type }})
-          - **Package**: ${{ matrix.filename }}
+          - **OptiScaler**: ${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version }} (${{ matrix.build_type }})
+          - **Package**: ${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_filename || needs.check-versions.outputs.latest_filename }}
           - **Auto-built**: This release was automatically generated when a new OptiScaler version was detected
           
           ## 🎮 Compatibility
@@ -556,7 +548,7 @@ jobs:
           - **${{ matrix.build_type == 'nightly' && 'This is a nightly build - may contain experimental features' || 'This is a stable release' }}**
           
           ---
-          Built with OptiScaler `${{ matrix.version }}` (${{ matrix.build_type }})
+          Built with OptiScaler `${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_version || needs.check-versions.outputs.latest_version }}` (${{ matrix.build_type }})
         files: Output/*.exe
         draft: false
         prerelease: ${{ matrix.build_type == 'nightly' }}
