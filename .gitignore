@@ -1,0 +1,60 @@
+# Build outputs
+Output/
+*.exe
+*.msi
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+
+# Extracted archives
+extracted/
+temp_extract/
+
+# Files sourced from OptiScaler releases (downloaded during CI)
+Dll version/dlss-enabler-upscaler.dll
+Dll version/libxess.dll
+Dll version/amd_fidelityfx_dx12.dll
+Dll version/amd_fidelityfx_vk.dll
+Dll version/OptiScaler.ini
+DLLSG mod/DisableNvidiaSignatureChecks.reg
+DLLSG mod/RestoreNvidiaSignatureChecks.reg
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+*.suo
+*.user
+
+# Git history and IDE files
+.history/
+
+# Windows thumbnail cache
+Thumbs.db
+ehthumbs.db
+
+# macOS
+.DS_Store
+
+# IDE files
+*.swp
+*.swo
+*~
+
+# Archive files (temporary downloads)
+*.zip
+*.7z
+*.rar
+
+# Backup files from Inno Setup
+*.~iss
+
+# Auto-generated version files
+version.txt
+build_info.txt
+
+
+PR_DESCRIPTION.md
+COMMIT_MESSAGE.md
