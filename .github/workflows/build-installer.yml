@@ -561,7 +561,7 @@ jobs:
           - **OptiScaler Package**: `${{ matrix.build_type == 'nightly' && needs.check-versions.outputs.nightly_filename || needs.check-versions.outputs.latest_filename }}`
           - **XeSS Library**: Latest from OptiScaler package
           - **AMD FidelityFX**: Latest from OptiScaler package  
-          - **DLSSG to FSR3 Module**: Nukem9's mod (version 0.100)
+          - **DLSSG to FSR3 Module**: Nukem9's mod (version 0.130)
           - **Registry Overrides**: Latest from OptiScaler package
           
           ## 🔧 Installation
