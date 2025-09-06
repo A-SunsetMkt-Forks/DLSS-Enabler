@@ -529,7 +529,7 @@ jobs:
 
     - name: Setup Inno Setup
       if: (matrix.build_type == 'nightly' && needs.check-versions.outputs.should_build_nightly == 'true') || (matrix.build_type == 'latest' && needs.check-versions.outputs.should_build_latest == 'true')
-      uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
+      uses: Minionguyjpro/Inno-Setup-Action@v1.2.7
       with:
         # Use default settings - no code signing for now
         path: "DLSS enabler.iss"
